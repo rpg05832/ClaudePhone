@@ -1,0 +1,12 @@
+{
+  "name": "claude-phone",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Claude Code בטלפון דרך ימות המשיח: סוכן מקומי (כולל הגישור) ולוח בקרה",
+  "workspaces": ["shared", "agent"],
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "npm start -w @claude-phone/agent",
+    "test": "npm test -w @claude-phone/agent"
+  }
+}

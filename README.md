@@ -1,0 +1,40 @@
+<div dir="rtl">
+
+# Claude Code בטלפון
+
+נותנים משימות ל-Claude Code מטלפון כשר, דרך שלוחה בימות המשיח, ושומעים את התשובות. הכל רץ על המחשב: אין שרת חיצוני, רק ימות המשיח ו-GitHub.
+
+- הקלטת בקשה בקול, תמלול מקומי (ivrit-ai) ואישור לפני שליחה
+- שיחה חדשה בפרויקט, המשך של שיחה קודמת (מהטלפון, מ-Claude Desktop, מהטרמינל, מ-VS Code ומ-Cowork ששמור במחשב), ושליחה לשיחה שפתוחה עכשיו בטרמינל
+- אישור פקודות ומענה לשאלות של Claude מהטלפון, עם צינתוק כשצריך אותך
+- לוח בקרה במחשב, עדכון מתוך התוכנה, וזמני שקט לשבת, לחג ולילה
+
+## התקנה
+מורידים את `ClaudePhone-Setup-<גרסה>.exe` מדף ה-[Releases](../../releases/latest), מריצים, ועוברים על האשף. לא נדרשות הרשאות מנהל. צריך מנוי Claude וטוקן API של ימות המשיח. לא צריך להתקין את Claude Desktop או את Claude Code: המערכת כוללת מנוע משלה.
+
+## עדכונים
+התוכנה בודקת ב-Releases של המאגר הזה אם יש גרסה חדשה, ומתקינה אותה בלחיצה ("עדכן עכשיו" בלוח הבקרה), או לבד אם הופעל עדכון אוטומטי. ההגדרות, הפרויקטים וההיסטוריה נשמרים. איך מפרסמים גרסה: `docs/releasing.md`.
+
+## מבנה
+| תיקייה | מה יש בה |
+|---|---|
+| `agent/` | הסוכן: שרת ימות מאחורי מנהרת Cloudflare, זרימת הטלפון, תמלול, הרצת Claude (Agent SDK), מאגר (SQLite), עדכון |
+| `dashboard/` | לוח הבקרה (React + Vite). ה-build נמצא ב-`agent/web` |
+| `shared/` | טיפוסים משותפים |
+| `installer/` | בניית קובץ ההתקנה (`build-release.ps1`, Inno Setup 6) |
+| `docs/` | ממצאים ומדריכים |
+
+## פיתוח
+```
+npm install
+cd agent && npm test
+powershell -ExecutionPolicy Bypass -File installer\build-release.ps1 -Version 0.6.2
+```
+דרישות לבנייה: Node 22.13 ומעלה, Inno Setup 6. קובץ ההתקנה נוצר ב-`installer\output`.
+
+## קרדיטים
+נבנה על ידי **@ארי ממתמחים טופ**, בעזרת Claude.
+
+מבוסס על [zevisvei/claude-code-yemot-hooks](https://github.com/zevisvei/claude-code-yemot-hooks) של zevisvei (רישיון MIT): ממנו נלקחו דפוסי זרימת השיחה בימות ופרוטוקול העברת בקשות האישור של Claude Code לטלפון.
+
+</div>

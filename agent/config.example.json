@@ -1,0 +1,17 @@
+{
+  "yemot": { "chatExtension": "", "tokenFile": "data/yemot.token", "apiBase": "https://www.call2all.co.il/ym/api" },
+  "phones": { "allowed": [], "pinHashFile": "data/pin.hash", "lockoutAttempts": 5, "lockoutMinutes": 15 },
+  "projects": { "newProjectsParent": "C:\\Users\\USER\\Desktop\\ClaudeProjects", "initGit": true, "list": [] },
+  "limits": { "recordSeconds": 120, "transcriptConfirmSeconds": 60, "queuedTaskHours": 24, "permissionMinutes": 10, "dialAttempts": 3, "waitOnCallMinutes": 5 },
+  "quietHours": { "start": "23:00", "end": "07:00", "shabbatAndChag": true, "includeCholHamoed": false, "candleMinutes": 40, "marginMinutes": 20, "location": "Jerusalem" },
+  "notifications": { "mode": "tzintuk" },
+  "stt": { "engine": "faster-whisper", "model": "ivrit-ai/whisper-large-v3-turbo-ct2", "python": "python", "script": "stt/transcribe.py", "timeoutSeconds": 180 },
+  "claude": { "strictMcp": true, "permissionMode": "default", "maxTurns": 40 },
+  "dashboard": { "port": 7788, "tokenFile": "data/dashboard.token", "staticDir": "web" },
+  "retention": { "recordingsDays": 7 },
+  "history": { "resumeSources": ["sdk", "desktop", "cli", "vscode", "cowork"], "activeMinutes": 3 },
+  "phoneServer": { "port": 7789, "path": "/yemot" },
+  "tunnel": { "mode": "quick", "cloudflaredPath": "", "publicUrl": "" },
+  "dataDir": "data",
+  "update": { "repo": "rpg05832/ClaudePhone", "apiBase": "https://api.github.com", "checkHours": 6, "auto": false }
+}
