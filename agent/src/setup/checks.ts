@@ -1,6 +1,6 @@
 // אשף ההגדרה: בדיקת המחשב (אפיון 7). קריאה בלבד: שום דבר לא מותקן כאן.
 import { execFile } from 'node:child_process';
-import { existsSync, readdirSync, statfsSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statfsSync, statSync, lstatSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, release } from 'node:os';
 import { AGENT_ROOT } from '../config.ts';
@@ -116,7 +116,9 @@ export function modelDir(): string {
 export function modelPresent(): boolean {
   const snaps = join(modelDir(), 'snapshots');
   if (!existsSync(snaps)) return false;
-  return readdirSync(snaps).some(s => existsSync(join(snaps, s, 'model.bin')));
+  // model.bin במטמון הוא קישור סמלי; בודקים את הקישור עצמו (lstat), בלי לעבור דרכו
+  const has = (p: string) => { try { lstatSync(p); return true; } catch { return false; } };
+  return readdirSync(snaps).some(s => has(join(snaps, s, 'model.bin')));
 }
 
 export function dirSizeMb(dir: string): number {

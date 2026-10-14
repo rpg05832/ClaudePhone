@@ -49,9 +49,11 @@ Type: files; Name: "{userdesktop}\לוח הבקרה - Claude בטלפון.url"
 [Run]
 ; המשימה המתוזמנת מגרסאות קודמות לא עבדה (נתיב עם עברית): מוחקים אותה. ההפעלה האוטומטית היא קיצור הדרך ב-Startup.
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -Command ""Unregister-ScheduledTask -TaskName 'ClaudePhone Agent' -Confirm:$false -ErrorAction SilentlyContinue"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"" --open"; Description: "פתח את אשף ההגדרה"; Flags: postinstall nowait skipifsilent
-; התקנה שקטה (עדכון מתוך התוכנה): מפעילים את הסוכן מחדש בלי לפתוח חלון
-Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"" --no-open"; Flags: nowait; Check: WizardSilent
+; הפעלה דרך Explorer (קיצור הדרך), ולא ישירות מההתקנה: תהליך שההתקנה מפעילה יורש ממנה הגנה שחוסמת מעבר בקישורים סמליים,
+; ובגללה מודל התמלול (במטמון של Hugging Face) לא נטען. Explorer מפעיל את הקיצור כתהליך עצמאי.
+Filename: "{win}\explorer.exe"; Parameters: """{userdesktop}\Claude בטלפון.lnk"""; Description: "פתח את אשף ההגדרה"; Flags: postinstall nowait skipifsilent
+; התקנה שקטה (עדכון מתוך התוכנה): מפעילים את הסוכן מחדש בלי לפתוח חלון, דרך קיצור ההפעלה האוטומטית
+Filename: "{win}\explorer.exe"; Parameters: """{userstartup}\Claude בטלפון.lnk"""; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop.ps1"" -RemoveTask"; Flags: runhidden waituntilterminated; RunOnceId: "StopAgent"
