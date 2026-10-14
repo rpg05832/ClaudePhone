@@ -159,7 +159,7 @@ export function startDashboard(d: DashboardDeps): http.Server {
       })));
     }
     if (p === '/conversations') {
-      let list = d.conversations.all();
+      let list = d.conversations.all().map(c => d.conversations.autoFolderView(c));
       const proj = q.get('project'), src = q.get('source'), text = (q.get('q') ?? '').trim();
       if (proj) list = list.filter(c => c.projectId === proj);
       if (src) list = list.filter(c => c.source === src);
@@ -173,7 +173,7 @@ export function startDashboard(d: DashboardDeps): http.Server {
     }
     let m = p.match(/^\/conversations\/([\w-]+)$/);
     if (m) {
-      const entry = d.conversations.get(m[1]);
+      const raw = d.conversations.get(m[1]); const entry = raw ? d.conversations.autoFolderView(raw) : null;
       if (!entry) return json(res, 404, { error: 'השיחה לא נמצאה' });
       const tasks = d.tasks.recent(5000).filter(t => t.conversationId === entry.id).reverse();
       return json(res, 200, { entry, messages: d.conversations.messages(entry.id), tasks: tasks.map(t => ({ ...t, hasRecording: hasRecording(t.recordingPath) })) });

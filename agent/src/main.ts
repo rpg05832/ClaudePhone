@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { loadConfig, readSecretFile, AGENT_ROOT } from './config.ts';
+import { loadConfig, readSecretFile, saveUserConfig, AGENT_ROOT } from './config.ts';
 import { initLog, log, logError } from './log.ts';
 import { Store } from './store/db.ts';
 import { Tasks } from './store/tasks.ts';
@@ -33,7 +33,7 @@ import { LiveHub } from './live/hub.ts';
 import { samePath } from './history/claude-history.ts';
 import { basename, resolve as resolvePath, relative as relPath, isAbsolute as isAbs } from 'node:path';
 import { SetupApi, needsSetup } from './setup/routes.ts';
-import { packageDir } from './setup/checks.ts';
+import { packageDir, findPython } from './setup/checks.ts';
 import { statSync, unlinkSync, readFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -120,6 +120,15 @@ if (setupMode) {
 
 const token = readSecretFile(cfg.yemot.tokenFile)!;
 const yemot = new YemotApi(token, cfg.yemot.apiBase);
+// Python לתמלול: הנתיב מההגדרות, ואם הוא לא קיים (או רק "python" ו-PATH שבור) מחפשים ושומרים את הנתיב המלא
+if (process.platform === 'win32' && (!isAbs(cfg.stt.python) || !existsSync(cfg.stt.python))) {
+  const py = await findPython(cfg.stt.python);
+  if (py.path && py.path !== cfg.stt.python) {
+    cfg.stt.python = py.path;
+    saveUserConfig({ stt: { python: py.path } });
+    log('stt', `נמצא Python: ${py.path}${py.fasterWhisper ? '' : ' (בלי faster-whisper)'}`);
+  } else if (!py.path) log('stt', 'לא נמצא Python מתאים. אפשר להתקין אותו מאשף ההגדרה');
+}
 const stt = new WhisperTranscriber(cfg.stt.python, cfg.stt.script, cfg.stt.model, cfg.stt.timeoutSeconds);
 stt.warmup().catch(e => logError('stt', e, 'warmup'));
 
@@ -169,6 +178,16 @@ function projectForCwd(cwd: string): string {
   const p = store.listProjects().filter(x => samePath(x.path, cwd) || inside(x.path)).sort((a, b) => b.path.length - a.path.length)[0];
   return (p ?? store.addProject({ name: basename(cwd) || cwd, path: cwd, phoneEnabled: false })).id;
 }
+/** שיחה מחוץ לפרויקטים שממשיכים: הפרויקט שמכיל את התיקייה, או רישום אוטומטי שלה (לא מופיע במקש 3). */
+function ensureProjectForFolder(folder: string): string {
+  const inside = (root: string) => { const r = relPath(resolvePath(root), resolvePath(folder)); return r === '' || (!r.startsWith('..') && !isAbs(r)); };
+  const p = store.listProjects().filter(x => samePath(x.path, folder) || inside(x.path)).sort((a, b) => b.path.length - a.path.length)[0];
+  if (p) { if (!p.phoneEnabled) throw new Error('הפרויקט של השיחה הזו כבוי בטלפון'); return p.id; }
+  if (!existsSync(folder)) throw new Error('התיקייה של השיחה כבר לא קיימת במחשב');
+  const np = store.addProject({ name: basename(folder) || folder, path: folder, phoneEnabled: true, listed: false });
+  log('projects', `נרשמה אוטומטית תיקייה של שיחה: ${folder}`);
+  return np.id;
+}
 function openLiveTerminal(projectId: string): string {
   const p = store.getProject(projectId);
   if (!p) throw new Error('הפרויקט לא נמצא');
@@ -212,6 +231,8 @@ const flow = new PhoneFlow({
   transcribeAudio: async (yemotPath) => stt.transcribe(await downloadRecording(yemotPath, 'explain')),
   decide: (id, d, via) => broker.decide(id, d, via),
   conversations: () => conversations.forPhone(),
+  allConversations: () => conversations.allForPhone(),
+  ensureProject: (folder) => ensureProjectForFolder(folder),
   liveSessions: () => live.list().map(l => { const pid = projectForCwd(l.cwd); return { id: l.id, name: store.getProject(pid)?.spokenName ?? l.name, projectId: pid }; }),
   lastAnswer: (id) => {
     const last = conversations.messages(id, 50).filter(m => m.role === 'assistant' && m.text.trim()).pop();
@@ -263,6 +284,7 @@ const dash = startDashboard({
     store, tasks, conversations, cfg, quiet,
     openLive: (projectId) => openLiveTerminal(projectId),
     updater, location,
+    ensureProject: (folder) => ensureProjectForFolder(folder),
     createProject: (name) => createProjectFromPhone(store, cfg.projects.newProjectsParent, name, cfg.projects.initGit),
     kickWorker: () => worker.kick(),
     requestStop: (id, actor) => worker.requestStop(id, actor),

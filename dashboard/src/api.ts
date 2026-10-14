@@ -69,7 +69,7 @@ export interface PermissionRequest {
 
 export interface Project {
   id: string; name: string; spokenName: string; path: string; phoneEnabled: boolean;
-  permissions: { editInsideProject: boolean; runCommands: boolean }; createdAt: string; conversations: number; lastActiveAt: string | null;
+  permissions: { editInsideProject: boolean; runCommands: boolean }; createdAt: string; conversations: number; lastActiveAt: string | null; listed?: boolean;
 }
 
 export interface Overview {

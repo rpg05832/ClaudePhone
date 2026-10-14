@@ -103,3 +103,53 @@ test('טלפון: מקש 2 מציג שיחת Desktop, וחוסם המשך עם �
   const idxOf = idx.forPhone().findIndex(c => c.id === 'desk-1') + 1;
   assert.match(await send(String(idxOf)), /המשך שיחות מהמקור הזה כבוי בהגדרות/);
 });
+
+test('טלפון: מקש 8 מקריא גם שיחות מחוץ לפרויקטים, וממשיך אותן בתיקייה שלהן (רישום אוטומטי)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'cph8-'));
+  const projDir = mkdtempSync(join(tmpdir(), 'proj8-'));
+  const outside = mkdtempSync(join(tmpdir(), 'outside8-'));
+  writeSession(root, 'C--a', 'in-proj', [{ type: 'user', cwd: projDir, entrypoint: 'cli', timestamp: '2026-10-10T10:00:00Z', message: { content: 'שיחה בפרויקט' } }]);
+  writeSession(root, 'C--b', 'out-1', [{ type: 'user', cwd: outside, entrypoint: 'claude-vscode', timestamp: '2026-10-12T10:00:00Z', message: { content: 'שיחה מחוץ לפרויקטים' } }]);
+  writeSession(root, 'C--c', 'gone-1', [{ type: 'user', cwd: join(outside, 'deleted'), entrypoint: 'cli', timestamp: '2026-10-11T10:00:00Z', message: { content: 'תיקייה שנמחקה' } }]);
+  const store = new Store(':memory:'); const tasks = new Tasks(store);
+  const p = store.addProject({ name: 'אתר', path: projDir });
+  const off = store.addProject({ name: 'כבוי', path: mkdtempSync(join(tmpdir(), 'off8-')) });
+  store.updateProject(off.id, { phoneEnabled: false });
+  writeSession(root, 'C--d', 'off-1', [{ type: 'user', cwd: off.path, entrypoint: 'cli', timestamp: '2026-10-13T10:00:00Z', message: { content: 'פרויקט כבוי' } }]);
+  const idx = new ConversationIndex(store, new ClaudeHistory(root), { resumeSources: ['sdk', 'cli', 'vscode'], activeMinutes: 3 });
+  // הרשימה המלאה: בלי שיחות של פרויקט כבוי; שיחה מחוץ לפרויקטים ניתנת להמשך עם תיקייה
+  const all = idx.allForPhone();
+  assert.deepEqual(all.map(c => c.id).sort(), ['gone-1', 'in-proj', 'out-1']);
+  const out = all.find(c => c.id === 'out-1')!;
+  assert.equal(out.canContinue, true); assert.equal(out.autoFolder, outside); assert.equal(out.source, 'vscode');
+  assert.equal(all.find(c => c.id === 'gone-1')!.canContinue, false);
+  assert.equal(idx.forPhone().some(c => c.id === 'out-1'), false);
+  const ensured: string[] = [];
+  const pin = hashPin('4321');
+  const flow = new PhoneFlow({
+    store, tasks, allowedPhones: () => ['050'], pinHash: () => pin, lockout: new PinLockout(5, 15),
+    limits: { recordSeconds: 120, transcriptConfirmSeconds: 60, queuedTaskHours: 24, waitOnCallMinutes: 5 },
+    transcribeRecording: async () => '', createProject: async () => { throw new Error('x'); }, kickWorker: () => {}, requestStop: () => {},
+    applyVoice: async () => {}, decide: () => 'missing', transcribeAudio: async () => '', conversations: () => idx.forPhone(), sleep: async () => {},
+    allConversations: () => idx.allForPhone(),
+    ensureProject: (folder) => { ensured.push(folder); return store.addProject({ name: 'חוץ', path: folder, listed: false }).id; },
+  });
+  const vals: Record<string, string> = {}; let last = '';
+  const send = async (v?: string) => {
+    if (v !== undefined && last) vals[last] = v;
+    const b = await flow.handle({ ApiCallId: 'C8', ApiPhone: '050', ApiExtension: '9', ...vals });
+    const m = [...b.matchAll(/=(v\d+),/g)].pop(); if (m) last = m[1];
+    return b;
+  };
+  await send();
+  assert.match(await send('4321'), /לכל השיחות במחשב 8/);
+  const list = await send('8');
+  assert.match(list, /שיחה מחוץ לפרויקטים מויזואל סטודיו/);
+  const pos = idx.allForPhone().findIndex(c => c.id === 'out-1') + 1;
+  assert.match(await send(String(pos)), /record/);
+  assert.deepEqual(ensured, [outside]);
+  // התיקייה נרשמה, אבל לא מופיעה ברשימת הפרויקטים במקש 3
+  assert.equal(store.listMenuProjects().some(x => x.path === outside), false);
+  assert.equal(store.listMenuProjects().some(x => x.id === p.id), true);
+  assert.equal(idx.forPhone().some(c => c.id === 'out-1'), true);
+});

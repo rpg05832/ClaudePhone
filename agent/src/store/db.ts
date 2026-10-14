@@ -72,6 +72,7 @@ export class Store {
     if (!cols.includes('model')) this.db.exec('ALTER TABLE tasks ADD COLUMN model TEXT');
     const pcols = (this.db.prepare('PRAGMA table_info(projects)').all() as any[]).map(c => c.name);
     if (!pcols.includes('former_paths')) this.db.exec('ALTER TABLE projects ADD COLUMN former_paths TEXT');
+    if (!pcols.includes('listed')) this.db.exec('ALTER TABLE projects ADD COLUMN listed INTEGER NOT NULL DEFAULT 1');
   }
 
   close(): void { this.db.close(); }
@@ -103,6 +104,11 @@ export class Store {
     return rows.map(rowToProject);
   }
 
+  /** הפרויקטים שמוקראים במקש 3 (בלי תיקיות שנרשמו אוטומטית מהמשך שיחה). */
+  listMenuProjects(): Project[] {
+    return this.listProjects(true).filter(p => p.listed !== false);
+  }
+
   getProject(id: string): Project | null {
     const r = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as any;
     return r ? rowToProject(r) : null;
@@ -113,25 +119,25 @@ export class Store {
     return r ? rowToProject(r) : null;
   }
 
-  addProject(p: { name: string; spokenName?: string; path: string; phoneEnabled?: boolean; permissions?: Partial<ProjectPermissions> }): Project {
+  addProject(p: { name: string; spokenName?: string; path: string; phoneEnabled?: boolean; listed?: boolean; permissions?: Partial<ProjectPermissions> }): Project {
     const existing = this.getProjectByPath(p.path);
     if (existing) return existing;
     const proj: Project = {
       id: randomUUID(), name: p.name, spokenName: p.spokenName || p.name, path: p.path,
       phoneEnabled: p.phoneEnabled ?? true, permissions: { ...DEFAULT_PERMISSIONS, ...(p.permissions || {}) }, createdAt: nowIso(),
     };
-    this.db.prepare('INSERT INTO projects (id, name, spoken_name, path, phone_enabled, permissions_json, created_at) VALUES (?,?,?,?,?,?,?)')
-      .run(proj.id, proj.name, proj.spokenName, proj.path, proj.phoneEnabled ? 1 : 0, JSON.stringify(proj.permissions), proj.createdAt);
-    return proj;
+    this.db.prepare('INSERT INTO projects (id, name, spoken_name, path, phone_enabled, permissions_json, created_at, listed) VALUES (?,?,?,?,?,?,?,?)')
+      .run(proj.id, proj.name, proj.spokenName, proj.path, proj.phoneEnabled ? 1 : 0, JSON.stringify(proj.permissions), proj.createdAt, p.listed === false ? 0 : 1);
+    return this.getProject(proj.id)!;
   }
 
   /** עדכון פרויקט מלוח הבקרה. */
-  updateProject(id: string, patch: { phoneEnabled?: boolean; spokenName?: string; editInsideProject?: boolean }): Project | null {
+  updateProject(id: string, patch: { phoneEnabled?: boolean; spokenName?: string; editInsideProject?: boolean; listed?: boolean }): Project | null {
     const p = this.getProject(id);
     if (!p) return null;
     const perms = { ...p.permissions, ...(patch.editInsideProject !== undefined ? { editInsideProject: patch.editInsideProject } : {}) };
-    this.db.prepare('UPDATE projects SET phone_enabled = ?, spoken_name = ?, permissions_json = ? WHERE id = ?')
-      .run((patch.phoneEnabled ?? p.phoneEnabled) ? 1 : 0, patch.spokenName ?? p.spokenName, JSON.stringify(perms), id);
+    this.db.prepare('UPDATE projects SET phone_enabled = ?, spoken_name = ?, permissions_json = ?, listed = ? WHERE id = ?')
+      .run((patch.phoneEnabled ?? p.phoneEnabled) ? 1 : 0, patch.spokenName ?? p.spokenName, JSON.stringify(perms), (patch.listed ?? p.listed ?? true) ? 1 : 0, id);
     return this.getProject(id);
   }
 
@@ -300,6 +306,7 @@ function rowToProject(r: any): Project {
     id: r.id, name: r.name, spokenName: r.spoken_name, path: r.path, phoneEnabled: !!r.phone_enabled,
     permissions: { ...DEFAULT_PERMISSIONS, ...safeJson(r.permissions_json) }, createdAt: r.created_at,
     ...(r.former_paths ? { formerPaths: (safeJson(r.former_paths) as unknown as string[]) ?? [] } : {}),
+    listed: r.listed === undefined || r.listed === null ? true : !!r.listed,
   };
 }
 

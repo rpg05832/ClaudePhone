@@ -43,6 +43,10 @@ export interface FlowDeps {
   conversations?: () => ConversationEntry[];
   /** שיחות Claude Code פתוחות במחשב עם ערוץ הטלפון (שלב 5). projectId: הפרויקט של התיקייה (נוצר אם צריך). */
   liveSessions?: () => { id: string; name: string; projectId: string }[];
+  /** מקש 8: כל השיחות במחשב, גם מחוץ לפרויקטים. */
+  allConversations?: () => ConversationEntry[];
+  /** רישום אוטומטי של תיקיית שיחה מחוץ לפרויקטים (לא מופיעה במקש 3). מחזיר מזהה פרויקט, או זורק שגיאה עם סיבה להקראה. */
+  ensureProject?: (folder: string) => string;
   /** התשובה האחרונה של Claude בשיחה (טקסט להקראה), לשיחות שאי אפשר להמשיך. */
   lastAnswer?: (conversationId: string) => string | null;
   /** עיכוב (נדרס בבדיקות). */
@@ -88,7 +92,8 @@ interface CallState {
   recFile?: string;
   newProjByKeyboard?: boolean;
   liveIds?: string[];
-  convIds?: string[];           // תמונת מצב של רשימת השיחות שהוקראה (כדי שהבחירה תתאים למה שנשמע)             // נתיב ההקלטה האחרונה בימות
+  convIds?: string[];           // תמונת מצב של רשימת השיחות שהוקראה (כדי שהבחירה תתאים למה שנשמע)
+  convAll?: boolean;            // מקש 8: כל השיחות במחשב (ולא רק של פרויקטים בטלפון)
   approvalId?: string;          // הבקשה שמוצגת כעת (מקש 6 / בכניסה / בזמן המתנה)
   approvalQIdx?: number;        // אינדקס השאלה הנוכחית (Claude יכול לשאול עד 4 שאלות בבקשה אחת)
   approvalAnswers?: Record<string, string>;
@@ -266,13 +271,15 @@ export class PhoneFlow {
     if (prefix) res.say(prefix);
     const pending = this.d.store.pendingPermissionRequests().length ? 'לבקשות שממתינות לך 6. ' : '';
     const live = this.d.liveSessions?.().length ? 'לשיחה הפתוחה במחשב 1. ' : '';
-    return res.readDigits(`${pending}${live}להמשך שיחה 2. לשיחה חדשה 3. לתוצאות 4. למשימות פעילות 5. להגדרות 7. להסבר על המערכת 9. לסיום 0`, this.next(c), { timeout: 20 });
+    const all = this.d.allConversations ? 'לכל השיחות במחשב 8. ' : '';
+    return res.readDigits(`${pending}${live}להמשך שיחה 2. לשיחה חדשה 3. לתוצאות 4. למשימות פעילות 5. להגדרות 7. ${all}להסבר על המערכת 9. לסיום 0`, this.next(c), { timeout: 20 });
   }
 
   private onMain(c: CallState, input: string | undefined): YemotResponse {
     switch (input) {
       case '1': return this.liveListScreen(c);
-      case '2': c.page = 0; return this.convListScreen(c);
+      case '2': c.page = 0; c.convAll = false; return this.convListScreen(c);
+      case '8': if (!this.d.allConversations) return this.mainMenu(c, 'בחירה לא תקינה'); c.page = 0; c.convAll = true; return this.convListScreen(c);
       case '3': c.page = 0; return this.projListScreen(c);
       case '4': return this.resultsScreen(c);
       case '5': return this.activeListScreen(c);
@@ -330,13 +337,17 @@ export class PhoneFlow {
     }));
   }
 
+  private listedConversations(c: CallState): ConversationEntry[] {
+    return c.convAll && this.d.allConversations ? this.d.allConversations() : this.phoneConversations();
+  }
+
   private convListScreen(c: CallState, prefix = ''): YemotResponse {
     c.screen = 'convList';
-    const all = this.phoneConversations();
+    const all = this.listedConversations(c);
     c.convIds = all.map(cv => cv.id);
     const res = r();
     if (prefix) res.say(prefix);
-    if (!all.length) return this.mainMenu(c, 'אין עדיין שיחות קודמות. לפתיחת שיחה חדשה הקש 3 בתפריט');
+    if (!all.length) return this.mainMenu(c, c.convAll ? 'לא נמצאו שיחות במחשב' : 'אין עדיין שיחות קודמות. לפתיחת שיחה חדשה הקש 3 בתפריט');
     const page = all.slice(c.page * PAGE, c.page * PAGE + PAGE);
     if (!page.length) { c.page = 0; return this.convListScreen(c, 'אין עוד שיחות. חוזרים לעמוד הראשון'); }
     const lines = page.map((cv, i) => {
@@ -353,8 +364,13 @@ export class PhoneFlow {
     if (input === '0') return this.mainMenu(c);
     if (!input) { c.page += 1; return this.convListScreen(c); }
     const id = c.convIds?.[c.page * PAGE + Number(input) - 1];
-    const conv = id ? this.phoneConversations().find(cv => cv.id === id) : undefined;
+    let conv = id ? this.listedConversations(c).find(cv => cv.id === id) : undefined;
     if (!conv) return this.convListScreen(c, 'בחירה לא תקינה');
+    // שיחה מחוץ לפרויקטים: התיקייה שלה נרשמת אוטומטית, והשיחה ממשיכה במקום שבו היא נמצאת
+    if (!conv.projectId && conv.autoFolder && conv.canContinue && this.d.ensureProject) {
+      try { conv = { ...conv, projectId: this.d.ensureProject(conv.autoFolder) }; }
+      catch (e) { return this.convListScreen(c, `${e instanceof Error ? e.message : 'לא ניתן להמשיך את השיחה'}. בחר שיחה אחרת`); }
+    }
     const proj = conv.projectId ? this.d.store.getProject(conv.projectId) : null;
     if (!proj || !proj.phoneEnabled) return this.convListScreen(c, 'הפרויקט של השיחה הזו אינו זמין בטלפון');
     // שיחה שלנו שרצה עכשיו: ההודעה תמתין בתור. שיחה חיצונית פעילה או שלא אומתה: לא נפתחת ברקע (אפיון 4).
@@ -376,7 +392,7 @@ export class PhoneFlow {
 
   private projListScreen(c: CallState, prefix = ''): YemotResponse {
     c.screen = 'projList';
-    const projects = this.d.store.listProjects(true);
+    const projects = this.d.store.listMenuProjects();
     const entries: string[] = projects.map(p => p.spokenName);
     entries.push('פרויקט חדש');   // האפשרות האחרונה ברשימה (אפיון 3)
     const page = entries.slice(c.page * PAGE, c.page * PAGE + PAGE);
@@ -391,7 +407,7 @@ export class PhoneFlow {
   private onProjList(c: CallState, input: string | undefined): YemotResponse {
     if (input === '0') return this.mainMenu(c);
     if (!input) { c.page += 1; return this.projListScreen(c); }
-    const projects = this.d.store.listProjects(true);
+    const projects = this.d.store.listMenuProjects();
     const idx = c.page * PAGE + Number(input) - 1;
     if (idx === projects.length) return this.newProjModeScreen(c);
     const proj = projects[idx];
@@ -946,7 +962,7 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
     'מקש 4 משמיע את התוצאות של משימות שהסתיימו',
     'מקש 5 מציג משימות שרצות עכשיו ומשם מקש 9 מבקש לעצור משימה',
     'מקש 6 מופיע רק כשיש בקשות אישור או שאלות שממתינות לך',
-    'מקש 7 להגדרות ומקש 9 להסבר הזה',
+    'מקש 7 להגדרות. מקש 8 מקריא את כל השיחות במחשב גם מחוץ לפרויקטים. מקש 9 להסבר הזה',
     'ברשימות ארוכות סולמית עוברת לעמוד הבא ו 0 חוזר אחורה',
   ] },
   { title: 'הקלטה ושליחה', lines: [
@@ -957,7 +973,8 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
     'דבר ברור ובמשפטים מלאים ואמור באיזה קובץ או נושא מדובר',
   ] },
   { title: 'אילו שיחות אפשר להמשיך', lines: [
-    'במקש 2 מוקראות השיחות של הפרויקטים שזמינים בטלפון מהחדשה לישנה',
+    'במקש 2 מוקראות השיחות של הפרויקטים שזמינים בטלפון מהחדשה לישנה ובמקש 8 כל השיחות במחשב',
+    'שיחה מחוץ לפרויקטים ממשיכה בתיקייה שלה והמערכת רושמת את התיקייה לבד',
     'אפשר להמשיך שיחות שנפתחו מהטלפון ושיחות של קלוד קוד מכל מקום במחשב באפליקציית הדסקטופ בטרמינל ובויזואל סטודיו',
     'אפשר להמשיך גם שיחות קוורק ששמורות במחשב',
     'שיחה שעבדו עליה במחשב בשלוש הדקות האחרונות נחשבת פתוחה ואי אפשר להמשיך אותה באותו רגע',

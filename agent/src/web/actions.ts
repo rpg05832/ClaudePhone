@@ -39,6 +39,8 @@ export interface ActionDeps {
   updater?: Updater;
   /** תיקיית הפרויקטים: מיקום והעברה. */
   location?: ProjectsLocation;
+  /** רישום אוטומטי של תיקיית שיחה מחוץ לפרויקטים (כמו מקש 8 בטלפון). */
+  ensureProject?: (folder: string) => string;
   /** חלון בחירת תיקייה (נדרס בבדיקות). */
   pickFolder?: (initial: string | null, title: string) => Promise<string | null>;
 }
@@ -116,8 +118,16 @@ export class DashboardActions {
       let projectId = String(body?.projectId ?? '');
       let conversationId: string | null = body?.conversationId ? String(body.conversationId) : null;
       if (conversationId) {
-        const conv = this.d.conversations.get(conversationId);
+        let conv = this.d.conversations.get(conversationId);
         if (!conv) return bad('השיחה לא נמצאה', 404);
+        // שיחה מחוץ לפרויקטים: ממשיכים בתיקייה שלה, והתיקייה נרשמת אוטומטית
+        if (!conv.projectId && this.d.ensureProject) {
+          const v = this.d.conversations.autoFolderView(conv);
+          if (v.autoFolder && v.canContinue) {
+            try { conv = { ...v, projectId: this.d.ensureProject(v.autoFolder) }; }
+            catch (e) { return bad(e instanceof Error ? e.message : String(e)); }
+          } else conv = v;
+        }
         const ours = conv.source === 'phone';
         if (!ours && !conv.canContinue) return bad(conv.blockedReason ?? 'אי אפשר להמשיך את השיחה הזו');
         if (!conv.projectId) return bad('השיחה לא שייכת לפרויקט');
@@ -194,7 +204,7 @@ export class DashboardActions {
     if ((m = path.match(/^\/projects\/([\w-]+)$/))) {
       const p = this.d.store.getProject(m[1]);
       if (!p) return bad('הפרויקט לא נמצא', 404);
-      const patch: { phoneEnabled?: boolean; spokenName?: string; editInsideProject?: boolean } = {};
+      const patch: { phoneEnabled?: boolean; spokenName?: string; editInsideProject?: boolean; listed?: boolean } = {};
       if (body?.phoneEnabled !== undefined) patch.phoneEnabled = !!body.phoneEnabled;
       if (body?.spokenName !== undefined) {
         const n = String(body.spokenName).trim();
@@ -202,6 +212,7 @@ export class DashboardActions {
         patch.spokenName = n;
       }
       if (body?.editInsideProject !== undefined) patch.editInsideProject = !!body.editInsideProject;
+      if (body?.listed !== undefined) patch.listed = !!body.listed;
       return ok(this.d.store.updateProject(p.id, patch));
     }
 

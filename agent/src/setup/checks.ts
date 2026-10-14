@@ -75,23 +75,37 @@ export async function claudeAuth(): Promise<{ loggedIn: boolean; method: string 
   }
 }
 
-/** מוצא Python שמתאים (3.10 ומעלה) ובודק אם faster-whisper מותקן. */
+/**
+ * מוצא Python שמתאים (3.10 ומעלה) ובודק אם faster-whisper מותקן. מעדיף Python שכבר יש בו faster-whisper.
+ * לא סומך רק על PATH: אצל חלק מהמשתמשים עם שם משתמש בעברית, PATH שמור עם ????? במקום השם, ו-"python" לא נמצא.
+ */
 export async function findPython(configured?: string): Promise<{ path: string | null; version: string | null; fasterWhisper: string | null }> {
   const cands: [string, string[]][] = [];
   if (configured && configured !== 'python') cands.push([configured, []]);
-  const local = join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Python');
-  if (existsSync(local)) for (const d of readdirSync(local).filter(d => /^Python3\d+$/.test(d)).sort().reverse()) cands.push([join(local, d, 'python.exe'), []]);
+  const roots = [join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Python'), process.env.ProgramFiles ?? 'C:\\Program Files', 'C:\\'];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    let dirs: string[] = [];
+    try { dirs = readdirSync(root).filter(d => /^Python3\d+$/i.test(d)).sort((a, b) => Number(b.slice(7)) - Number(a.slice(7))); } catch { /* */ }
+    for (const d of dirs) { const exe = join(root, d, 'python.exe'); if (existsSync(exe)) cands.push([exe, []]); }
+  }
   cands.push(['python', []], ['py', ['-3']]);
+  let first: { path: string; version: string; fasterWhisper: string | null } | null = null;
+  const seen = new Set<string>();
   for (const [cmd, pre] of cands) {
     const r = await run(cmd, [...pre, '-c', 'import sys;print(sys.executable);print("%d.%d.%d"%sys.version_info[:3])'], 15_000);
     if (r.code !== 0 || !r.out) continue;
     const [exe, ver] = r.out.split(/\r?\n/);
-    const [maj, min] = ver.split('.').map(Number);
+    if (!exe || seen.has(exe.toLowerCase())) continue;
+    seen.add(exe.toLowerCase());
+    const [maj, min] = (ver ?? '').split('.').map(Number);
     if (maj !== 3 || min < 10) continue;
     const fw = await run(exe, ['-c', 'import faster_whisper;print(faster_whisper.__version__)'], 30_000);
-    return { path: exe, version: ver, fasterWhisper: fw.code === 0 ? fw.out : null };
+    const found = { path: exe, version: ver, fasterWhisper: fw.code === 0 ? fw.out : null };
+    if (found.fasterWhisper) return found;
+    first ??= found;
   }
-  return { path: null, version: null, fasterWhisper: null };
+  return first ?? { path: null, version: null, fasterWhisper: null };
 }
 
 export function modelDir(): string {

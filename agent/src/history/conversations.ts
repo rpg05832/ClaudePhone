@@ -1,6 +1,8 @@
 // רשימת השיחות המאוחדת: שיחות שהמערכת פתחה (מאגר תפעולי) + שיחות מהיסטוריית Claude (Desktop, טרמינל).
 // אפיון 3/6: מוצג מקור מזוהה או "לא ידוע"; "ניתן להמשך" רק אחרי בדיקת תאימות ובעלות.
 import type { Project } from '@claude-phone/shared';
+import { existsSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { Store } from '../store/db.ts';
 import { ClaudeHistory, samePath, type HistorySession, type HistorySource, type HistoryMessage } from './claude-history.ts';
 import type { CoworkHistory, CoworkSession } from './cowork.ts';
@@ -22,6 +24,10 @@ export interface ConversationEntry {
   /** אם אי אפשר: למה (מוקרא בטלפון ומוצג בלוח). */
   blockedReason: string | null;
   inHistory: boolean;
+  /** התיקייה שבה השיחה רצה (לשיחות מחוץ לפרויקטים). */
+  folder?: string | null;
+  /** במקש 8: שיחה מחוץ לפרויקטים שאפשר להמשיך. התיקייה תירשם אוטומטית כשממשיכים. */
+  autoFolder?: string | null;
   /** פרויקט Cowork (לשיחות Cowork). */
   coworkProject?: string | null;
   archived?: boolean;
@@ -77,6 +83,34 @@ export class ConversationIndex {
 
   get(id: string): ConversationEntry | null { return this.all().find(c => c.id === id) ?? null; }
 
+  /**
+   * לטלפון, מקש 8: כל השיחות במחשב, גם מחוץ לפרויקטים. לא כולל שיחות בארכיון ושיחות של פרויקט שכובה בטלפון.
+   * שיחה מחוץ לפרויקטים שאפשר להמשיך מסומנת ב-autoFolder: התיקייה שלה תירשם אוטומטית בהמשך.
+   */
+  allForPhone(): ConversationEntry[] {
+    const disabled = new Set(this.store.listProjects().filter(p => !p.phoneEnabled).map(p => p.id));
+    return this.all().filter(c => !c.archived && !(c.projectId && disabled.has(c.projectId))).map(c => this.autoFolderView(c));
+  }
+
+  /** שיחה בלי פרויקט: אפשר להמשיך אם התיקייה שלה קיימת והמקור מותר. */
+  autoFolderView(c: ConversationEntry): ConversationEntry {
+    if (c.projectId) return c;
+    const f = c.folder;
+    if (!f) return c;
+    if (!existsSync(f)) return { ...c, blockedReason: 'התיקייה של השיחה כבר לא קיימת במחשב' };
+    let reason: string | null = null;
+    if (c.source === 'cowork') {
+      const s = this.cowork?.get(c.id);
+      if (!s?.hostMode) reason = 'השיחה רצה במכונה הווירטואלית של Cowork, ואפשר רק לקרוא אותה';
+      else if (!s.transcript) reason = 'התמליל של השיחה לא נמצא';
+      else if (!this.opts.resumeSources.includes('cowork')) reason = 'המשך שיחות Cowork כבוי בהגדרות';
+      else if (c.active) reason = 'השיחה פתוחה כרגע ב-Desktop';
+    } else if (!this.opts.resumeSources.includes(c.source as any)) {
+      reason = c.source === 'unknown' ? 'השיחה נוצרה בכלי לא מוכר, ולכן לא ממשיכים אותה מהטלפון' : 'המשך שיחות מהמקור הזה כבוי בהגדרות';
+    } else if (c.active) reason = 'השיחה פתוחה כרגע במחשב';
+    return { ...c, canContinue: !reason, blockedReason: reason, autoFolder: reason ? null : f, projectName: c.projectName ?? (basename(f) || f) };
+  }
+
   /** תוכן השיחה, מכל מקור. */
   messages(id: string, limit = 500): HistoryMessage[] {
     const cw = this.cowork?.get(id);
@@ -121,6 +155,7 @@ export class ConversationIndex {
       id: s.id, projectId: p?.id ?? null, projectName: p?.spokenName ?? s.spaceName ?? null, title: s.title, source: 'cowork',
       createdAt: s.createdAt, lastActiveAt: s.lastActiveAt, active, canContinue: blockedReason === null, blockedReason,
       inHistory: !!s.transcript, coworkProject: s.spaceName, archived: s.archived,
+      folder: s.folders.find(f => existsSync(f)) ?? s.cwd ?? null,
     };
   }
 
@@ -135,6 +170,7 @@ export class ConversationIndex {
     return {
       id: h.id, projectId: p?.id ?? null, projectName: p?.spokenName ?? null, title: h.title, source: h.source,
       createdAt: h.createdAt, lastActiveAt: h.lastActiveAt, active, canContinue: blockedReason === null, blockedReason, inHistory: true,
+      folder: h.cwd ?? null,
     };
   }
 }

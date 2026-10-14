@@ -485,6 +485,8 @@ function ProjectCard({ p }: { p: Project }) {
         {p.lastActiveAt && <span className="muted">{when(p.lastActiveAt)}</span>}
       </div>
       <label className="check"><input type="checkbox" checked={p.phoneEnabled} onChange={e => save({ phoneEnabled: e.target.checked })} /> זמין בטלפון ובלוח</label>
+      <label className="check"><input type="checkbox" checked={p.listed !== false} disabled={!p.phoneEnabled} onChange={e => save({ listed: e.target.checked })} /> מופיע ברשימת הפרויקטים בטלפון (מקש 3)</label>
+      {p.listed === false && <div className="hint">נרשם אוטומטית כשהמשכת שיחה מהתיקייה הזו.</div>}
       <label className="check"><input type="checkbox" checked={p.permissions.editInsideProject} onChange={e => save({ editInsideProject: e.target.checked })} /> Claude עורך קבצים בפרויקט בלי לשאול</label>
       {err && <div className="error">{err}</div>}
     </li>
