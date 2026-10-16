@@ -19,7 +19,7 @@ try { $nv = (node --version).Trim(); if ([version]($nv.TrimStart('v')) -ge [vers
 Step 'Python + faster-whisper (תמלול מקומי)'
 $py = 'python'
 try { $pv = (& $py -c "import faster_whisper,sys;print(sys.version.split()[0], faster_whisper.__version__)" 2>$null); if ($LASTEXITCODE -eq 0) { Good "Python/faster-whisper: $pv" } else { throw 'x' } }
-catch { Write-Host '  מתקין faster-whisper...'; & $py -m pip install --user faster-whisper | Out-Null; if ($LASTEXITCODE -eq 0) { Good 'faster-whisper הותקן' } else { Bad 'התקנת faster-whisper נכשלה' } }
+catch { Write-Host '  מתקין faster-whisper...'; & $py -m pip install --user faster-whisper "av<19" | Out-Null; if ($LASTEXITCODE -eq 0) { Good 'faster-whisper הותקן' } else { Bad 'התקנת faster-whisper נכשלה' } }
 
 Step 'תלויות הסוכן (npm install)'
 Push-Location $root

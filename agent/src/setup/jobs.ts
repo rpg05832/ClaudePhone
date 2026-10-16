@@ -76,8 +76,9 @@ export class SetupJobs {
             const found = await findPython(python);
             if (!found.path) throw new Error('צריך קודם את Python');
             python = found.path; ctx.onPython(found.path);
+            // av<19: גרסה 19 של PyAV (רכיב של faster-whisper) שוברת את פענוח השמע בהתקנות חדשות (נמצא 16.10.2026)
             step.detail = 'מתקין דרך pip';
-            const r = await runStreaming(found.path, ['-m', 'pip', 'install', '--user', '--disable-pip-version-check', 'faster-whisper', 'truststore'], line => {
+            const r = await runStreaming(found.path, ['-m', 'pip', 'install', '--user', '--disable-pip-version-check', 'faster-whisper', 'av<19', 'truststore'], line => {
               const m = line.match(/(Collecting|Downloading|Installing collected packages)\s*(\S+)?/);
               if (m) step.detail = m[0].slice(0, 80);
             }, 30 * 60_000);
