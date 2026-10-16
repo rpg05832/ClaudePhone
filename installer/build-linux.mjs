@@ -19,6 +19,11 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 
+// אישורי האבטחה של המערכת (מאחורי סינון כמו נטפרי ההורדות נכשלות בלי זה): מפעילים את עצמנו מחדש עם --use-system-ca
+if (!process.execArgv.includes('--use-system-ca') && process.allowedNodeEnvironmentFlags.has('--use-system-ca')) {
+  const r = (await import('node:child_process')).spawnSync(process.execPath, ['--use-system-ca', ...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: 'inherit' });
+  process.exit(r.status ?? 1);
+}
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
 const VERSION = opt('--version');

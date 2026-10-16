@@ -44,7 +44,8 @@ test('בדיקת המחשב: Windows, לינוקס x64/arm64, ומה לא נתמ
 
 test('שירות systemd: נתיבים מלאים, הפעלה מחדש אוטומטית, וסימון שירות', () => {
   const u = serviceUnit('/home/u/.local/share/claudephone');
-  assert.match(u, /^ExecStart="\/home\/u\/\.local\/share\/claudephone\/runtime\/node" "\/home\/u\/\.local\/share\/claudephone\/agent\/dist\/agent\.mjs" --no-open$/m);
+  // --use-system-ca: אישורי האבטחה של המערכת (נדרש מאחורי סינון כמו נטפרי), כמו ב-launcher.vbs של Windows
+  assert.match(u, /^ExecStart="\/home\/u\/\.local\/share\/claudephone\/runtime\/node" --no-warnings --use-system-ca "\/home\/u\/\.local\/share\/claudephone\/agent\/dist\/agent\.mjs" --no-open$/m);
   assert.match(u, /^WorkingDirectory=\/home\/u\/\.local\/share\/claudephone\/agent$/m);
   assert.match(u, /^Restart=always$/m);
   assert.match(u, /^Environment=CLAUDEPHONE_SERVICE=1$/m);

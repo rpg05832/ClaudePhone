@@ -11,10 +11,10 @@ if command -v systemctl >/dev/null && systemctl --user cat claudephone.service >
   systemctl --user start claudephone.service
 else
   # בלי systemd: מופע ברקע. אם הסוכן כבר רץ, המופע החדש מזהה את זה ויוצא.
-  (cd "$DIR/agent" && exec nohup "$NODE" "$AGENT" --no-open) </dev/null >/dev/null 2>&1 &
+  (cd "$DIR/agent" && exec nohup "$NODE" --no-warnings --use-system-ca "$AGENT" --no-open) </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
 fi
 
 if [ "$MODE" = "--open" ]; then
-  cd "$DIR/agent" && exec "$NODE" "$AGENT" --open-only
+  cd "$DIR/agent" && exec "$NODE" --no-warnings --use-system-ca "$AGENT" --open-only
 fi

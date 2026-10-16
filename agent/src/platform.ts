@@ -179,7 +179,7 @@ export function serviceUnit(appDir: string, path = process.env.PATH ?? ''): stri
     '[Service]',
     'Type=simple',
     `WorkingDirectory=${posix.join(appDir, 'agent')}`,
-    `ExecStart="${node}" "${agent}" --no-open`,
+    `ExecStart="${node}" --no-warnings --use-system-ca "${agent}" --no-open`,
     'Restart=always',
     'RestartSec=3',
     // ההפעלה מחדש מהאשף/מהלוח יוצאת עם 0, ו-systemd מעלה מחדש

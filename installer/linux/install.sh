@@ -139,7 +139,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$APP_DIR/agent
-ExecStart="$APP_DIR/runtime/node" "$APP_DIR/agent/dist/agent.mjs" --no-open
+ExecStart="$APP_DIR/runtime/node" --no-warnings --use-system-ca "$APP_DIR/agent/dist/agent.mjs" --no-open
 Restart=always
 RestartSec=3
 KillSignal=SIGTERM
@@ -166,7 +166,7 @@ say "מפעיל את הסוכן"
 if [ "$HAVE_SYSTEMD" = 1 ]; then
   systemctl --user restart "$SERVICE.service"
 else
-  (cd "$APP_DIR/agent" && CLAUDEPHONE_SERVICE= exec nohup "$APP_DIR/runtime/node" "$APP_DIR/agent/dist/agent.mjs" --no-open) </dev/null >/dev/null 2>&1 &
+  (cd "$APP_DIR/agent" && CLAUDEPHONE_SERVICE= exec nohup "$APP_DIR/runtime/node" --no-warnings --use-system-ca "$APP_DIR/agent/dist/agent.mjs" --no-open) </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
 fi
 
