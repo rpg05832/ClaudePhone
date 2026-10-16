@@ -364,6 +364,7 @@ kbd { display: inline-block; min-width: 1.7em; padding: 0 6px; font: 600 13px/1.
 .mcp-list .check input { margin-top: 0; }
 .mcp-list .linkbtn { font-size: 13px; }
 .mcp-tools { flex-basis: 100%; font-size: 12px; color: var(--muted); text-align: left; background: var(--sunk); padding: 6px 10px; border-radius: var(--r-s); overflow-wrap: anywhere; }
+.mcp-error { margin-top: 4px; color: var(--bad, #b42318); direction: rtl; text-align: right; }
 
 /* ---------- קרדיט ---------- */
 .foot { max-width: 1120px; margin-inline: auto; padding: 0 24px 28px; }

@@ -70,6 +70,39 @@ test('גילוי: נעצר אחרי הודעת init ומחזיר את השרתי
   assert.deepEqual(scan.servers.map(s => s.slug), ['claude_ai_Gmail']);
 });
 
+test('גילוי: שרת שעדיין "מתחבר" ב-init נדגם עד שמתחבר, ומקבל כלים, מצב סופי ושגיאה', async () => {
+  let calls = 0; let aborted = false;
+  const gen = async function* () {
+    yield { type: 'system', subtype: 'init', claude_code_version: '2.1.296', mcp_servers: [{ name: 'claude.ai Gmail', status: 'connected' }, { name: 'desktop-commander', status: 'pending' }, { name: 'plugin:firecrawl:firecrawl', status: 'pending' }], tools: ['mcp__claude_ai_Gmail__send_message'] };
+    yield { type: 'assistant' };
+    yield { type: 'result', subtype: 'success', result: 'x' };
+  };
+  const query = (args: any) => {
+    args.options.abortController.signal.addEventListener('abort', () => { aborted = true; });
+    return Object.assign(gen(), {
+      mcpServerStatus: async () => {
+        calls++;
+        if (calls === 1) return [{ name: 'desktop-commander', status: 'pending' }, { name: 'plugin:firecrawl:firecrawl', status: 'pending' }];
+        return [
+          { name: 'claude.ai Gmail', status: 'connected', tools: [{ name: 'send_message' }] },
+          { name: 'desktop-commander', status: 'connected', tools: [{ name: 'read_file' }, { name: 'start_process' }] },
+          { name: 'plugin:firecrawl:firecrawl', status: 'failed', error: 'FIRECRAWL_API_KEY   is missing\n' },
+        ];
+      },
+    });
+  };
+  const scan = await discoverMcp(query as any, '/tmp', 90_000, 5_000);
+  assert.equal(aborted, true);
+  assert.ok(calls >= 2);
+  const by = Object.fromEntries(scan.servers.map(s => [s.slug, s]));
+  assert.equal(by['desktop-commander'].status, 'connected');
+  assert.deepEqual(by['desktop-commander'].tools, ['read_file', 'start_process']);
+  assert.equal(by['plugin_firecrawl_firecrawl'].status, 'failed');
+  assert.equal(by['plugin_firecrawl_firecrawl'].error, 'FIRECRAWL_API_KEY is missing');
+  assert.deepEqual(by['claude_ai_Gmail'].tools, ['send_message']);   // הכלים מה-init נשמרים
+  assert.equal(by['claude_ai_Gmail'].error, undefined);
+});
+
 test('הרצה: בלי חיבורים מצב מחמיר; עם חיבורים לא-מחמיר, כלים של שרתים אחרים מוסתרים, וההנחיה מזכירה את החיבור', async () => {
   const seen: any[] = [];
   const query = async function* (args: any) { seen.push(args.options); yield { type: 'result', subtype: 'success', result: 'ok', num_turns: 1, session_id: 's1' }; };

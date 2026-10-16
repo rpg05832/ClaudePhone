@@ -39,7 +39,7 @@ export type AskResult =
 
 export interface RunResult { sessionId: string | null; text: string; isError: boolean; errorText?: string; turns: number; }
 
-export type QueryFn = (args: { prompt: string; options: Record<string, unknown> }) => AsyncIterable<any>;
+export type QueryFn = (args: { prompt: string | AsyncIterable<unknown>; options: Record<string, unknown> }) => AsyncIterable<any>;
 
 /** ההנחיה שמתווספת ל-Claude: המשתמש בטלפון, והתשובה מוקראת. */
 export const PHONE_APPEND = [
