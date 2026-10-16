@@ -50,6 +50,8 @@ export interface FlowDeps {
   ensureProject?: (folder: string) => string;
   /** התשובה האחרונה של Claude בשיחה (טקסט להקראה), לשיחות שאי אפשר להמשיך. */
   lastAnswer?: (conversationId: string) => string | null;
+  /** חיבורי MCP שפתוחים למשימות מהטלפון (שמות להקראה), להודעה בהגדרות. */
+  mcpConnections?: () => string[];
   /** עיכוב (נדרס בבדיקות). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -833,7 +835,8 @@ export class PhoneFlow {
     const modelName = MODELS.find(m => m.id === st.model)?.spoken ?? '';
     const effortName = EFFORTS.find(m => m.id === st.effort)?.spoken ?? '';
     const readbackName = READBACKS.find(m => m.id === st.readback)?.spoken ?? '';
-    res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}`);
+    const conns = this.d.mcpConnections?.() ?? [];
+    res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}${conns.length ? `. חיבורים פתוחים למשימות: ${conns.join(', ')}` : ''}`);
     return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. למה מוקרא בסיום משימה 7. לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
@@ -1036,6 +1039,7 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
     'מקש 5 בוחר מודל פייבל הוא החזק ביותר אופוס חזק מאוד סונט מאוזן והייקו מהיר וחסכוני',
     'מקש 6 בוחר רמת חשיבה ורמה גבוהה יותר יסודית יותר אבל איטית יותר',
     'מקש 7 קובע מה מוקרא בסיום משימה התשובה המלאה של קלוד או רק הסיכום הקצר שבראשה',
+    'חיבורים כמו ג׳ימייל דרייב ויומן פותחים למשימות מהטלפון בלוח הבקרה בהגדרות ושליחת מייל או מחיקה מגיעות אליך לאישור לפי מצב העבודה',
   ] },
 ];
 

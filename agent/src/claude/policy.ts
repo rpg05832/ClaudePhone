@@ -16,6 +16,11 @@ export interface McpPolicy { enabled: string[]; labels?: Record<string, string> 
 export const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 export const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 export const QUESTION_TOOL = 'AskUserQuestion';
+/**
+ * כלי עזר פנימיים של Claude Code שלא נוגעים בקבצים ולא יוצאים החוצה: טעינת הגדרות של כלים (ToolSearch: בלעדיו
+ * Claude לא יכול להשתמש בכלי MCP, נבדק 16.10), רשימת משימות פנימית, קריאת מקורות MCP. מאושרים בכל מצב עבודה.
+ */
+export const SAFE_TOOLS = new Set(['ToolSearch', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'Skill']);
 
 export interface PolicyDecision { action: 'allow' | 'deny' | 'ask'; reason: string; summary: string; }
 
@@ -23,6 +28,7 @@ export function decide(toolName: string, input: Record<string, unknown>, project
   const roots = Array.isArray(projectPath) ? projectPath : [projectPath];
   const summary = speakableSummary(toolName, input, mcp?.labels);
   if (toolName === QUESTION_TOOL) return { action: 'ask', reason: 'שאלה למשתמש', summary };
+  if (SAFE_TOOLS.has(toolName)) return { action: 'allow', reason: 'כלי עזר פנימי', summary };
   // חיבורי MCP: רק שרת שהמשתמש פתח לטלפון; קריאה לבד, שינוי לפי מצב העבודה. שרת שלא נפתח נדחה גם באישור אוטומטי.
   const mt = parseMcpTool(toolName);
   if (mt) {

@@ -42,8 +42,9 @@ test('מדיניות: שרת שלא נפתח נדחה (גם באישור אוט�
   assert.equal(ask.summary, 'Gmail: לשלוח מייל אל a@b.com בנושא שלום');
   assert.equal(decide('mcp__claude_ai_Gmail__send_message', send, '/p', PERMS, 'readonly', mcp).action, 'deny');
   assert.equal(decide('mcp__claude_ai_Gmail__send_message', send, '/p', PERMS, 'auto', mcp).action, 'allow');
-  // כלים רגילים לא מושפעים
+  // כלים רגילים לא מושפעים; כלי עזר פנימיים (טעינת הגדרות כלים) מאושרים תמיד
   assert.equal(decide('Bash', { command: 'ls' }, '/p', PERMS, 'edit', mcp).action, 'ask');
+  assert.equal(decide('ToolSearch', { query: 'gmail' }, '/p', PERMS, 'readonly').action, 'allow');
 });
 
 test('כלי קריאה לפי שם, ותיאורים להקראה', () => {
@@ -80,4 +81,15 @@ test('הרצה: בלי חיבורים מצב מחמיר; עם חיבורים ל�
   assert.equal(seen[1].strictMcpConfig, false);
   assert.deepEqual(seen[1].disallowedTools, ['mcp__desktop-commander', 'mcp__claude_ai_Canva']);
   assert.match(seen[1].systemPrompt.append, /זמינים לך ככלי MCP.*Gmail/);
+  // עם חיבורים נטענות גם הגדרות המשתמש (אחרת אין חיבורים), ולכן hook מחזיר את המדיניות לכל כלי
+  assert.deepEqual(seen[0].settingSources, ['project', 'local']);
+  assert.deepEqual(seen[1].settingSources, ['user', 'project', 'local']);
+  const hook = seen[1].hooks.PreToolUse[0].hooks[0];
+  assert.deepEqual(await hook({ tool_name: 'mcp__claude_ai_Gmail__search_threads', tool_input: {} }), {});
+  const deny = await hook({ tool_name: 'mcp__desktop-commander__start_process', tool_input: {} });
+  assert.equal(deny.hookSpecificOutput.permissionDecision, 'deny');
+  const ask = await hook({ tool_name: 'mcp__claude_ai_Gmail__send_message', tool_input: { to: 'x@y.z' } });
+  assert.equal(ask.hookSpecificOutput.permissionDecision, 'ask');
+  const bash = await hook({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } });
+  assert.equal(bash.hookSpecificOutput.permissionDecision, 'ask');
 });

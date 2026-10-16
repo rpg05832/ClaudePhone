@@ -82,7 +82,14 @@ export async function runClaude(query: QueryFn, i: RunInput): Promise<RunResult>
     mcpServers: {},
     ...(mcpOpen && i.mcp!.known?.length ? { disallowedTools: i.mcp!.known.filter(s => !i.mcp!.enabled.includes(s)).map(s => `mcp__${s}`) } : {}),
     // רק הגדרות הפרויקט (כולל CLAUDE.md). בלי הגדרות המשתמש, כדי שכללי "אשר תמיד" כלליים לא יעקפו את המדיניות.
-    settingSources: ['project', 'local'],
+    // חיבורי MCP (גם המחברים של claude.ai) נטענים רק עם הגדרות המשתמש (נבדק 16.10), ולכן כשחיבורים פתוחים הן נכללות,
+    // וה-hook למטה מחזיר את המדיניות שלנו לכל כלי, גם כזה שכלל "אשר תמיד" של המשתמש היה מאשר.
+    settingSources: mcpOpen ? ['user', 'project', 'local'] : ['project', 'local'],
+    ...(mcpOpen ? { hooks: { PreToolUse: [{ hooks: [async (h: any) => {
+      const d = decide(String(h?.tool_name ?? ''), (h?.tool_input ?? {}) as Record<string, unknown>, i.editRoots ?? i.project.path, i.project.permissions, i.editMode, i.mcp);
+      if (d.action === 'allow') return {};   // ההחלטה הרגילה (canUseTool) עדיין נשאלת אם אין כלל שמאשר
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.action, permissionDecisionReason: d.reason } };
+    }] }] } } : {}),
     systemPrompt: { type: 'preset', preset: 'claude_code', append: PHONE_APPEND + (i.editMode === 'readonly' ? '\n' + READONLY_APPEND : i.editMode === 'auto' ? '\n' + AUTO_APPEND : '') + (mcpOpen ? '\n' + mcpAppend(i.mcp!) : '') },
     abortController: i.abort,
     canUseTool: async (toolName: string, input: Record<string, unknown>, opts: { signal: AbortSignal }) => {

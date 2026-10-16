@@ -5,6 +5,7 @@ import Help from './Help';
 import { CreditLine } from './Credits';
 import { UpdateBanner, UpdateBox, LocationCard } from './Maintenance';
 import ConversationView, { Composer } from './Chat';
+import McpConnections from './Mcp';
 import { MODEL_LABEL, EFFORT_LABEL, when, until, full, STATE_LABEL, stateTone, SOURCE_LABEL, DECISION_LABEL, VIA_LABEL, MODE_LABEL, VOICE_LABEL, PHONE_KIND } from './format';
 
 // ---------- ניתוב פשוט לפי hash ----------
@@ -507,6 +508,8 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
       <ul className="health">{rows.map(([n, ok, d]) => <li key={n}><i className={ok === null || ok === undefined ? 'dot gray' : ok ? 'dot green' : 'dot red'} /><b>{n}</b><span className="muted" dir="auto">{d}</span></li>)}</ul>
       <h2>הגדרות</h2>
       <SettingsForm s={ov.settings} />
+      <h2 id="mcp">חיבורי MCP למשימות מהטלפון</h2>
+      <McpConnections />
       <h2>זמני שקט ושמירת הקלטות</h2>
       {h.quiet?.quiet && <p className="hint">עכשיו זמן שקט ({({ night: 'לילה', shabbat: 'שבת', chag: 'חג', cholhamoed: 'חול המועד' } as any)[h.quiet.reason] ?? ''}): צינתוקים נדחים לסופו.</p>}
       <QuietForm />

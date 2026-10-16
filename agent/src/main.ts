@@ -269,6 +269,7 @@ const flow = new PhoneFlow({
     if (!currentUrl) throw new Error('המנהרה עוד לא מחוברת');
     await yemot.setApiExtension(cfg.yemot.chatExtension, currentUrl + cfg.phoneServer.path, { voice, rate });
   },
+  mcpConnections: () => { const p = mcpPolicy(); return p ? p.enabled.map(s => p.labels[s] ?? s) : []; },
 });
 
 flowRef = flow;

@@ -71,7 +71,8 @@ export async function discoverMcp(query: QueryFn, cwd: string, timeoutMs = 90_00
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   let init: any = null;
   try {
-    for await (const m of query({ prompt: '.', options: { cwd, maxTurns: 1, model: 'haiku', strictMcpConfig: false, permissionMode: 'default', settingSources: ['project', 'local'], abortController: abort, canUseTool: async () => ({ behavior: 'deny', message: 'סריקה בלבד' }) } })) {
+    // הגדרות המשתמש נדרשות: בלעדיהן Claude Code לא טוען שום חיבור, גם לא את המחברים של claude.ai (נבדק 16.10)
+    for await (const m of query({ prompt: '.', options: { cwd, maxTurns: 1, model: 'haiku', strictMcpConfig: false, permissionMode: 'default', settingSources: ['user', 'project', 'local'], abortController: abort, canUseTool: async () => ({ behavior: 'deny', message: 'סריקה בלבד' }) } })) {
       if (m.type === 'system' && m.subtype === 'init') { init = m; abort.abort(); break; }
       if (m.type === 'result') break;
     }

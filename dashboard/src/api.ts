@@ -96,6 +96,10 @@ export interface ProjectsLocationInfo {
 
 export interface PhoneLogEntry { callId: string; phone: string; at: string; kind: string; detail: string | null }
 
+/** חיבורי MCP: מה קיים במחשב (סריקה) ומה פתוח למשימות מהטלפון. */
+export interface McpServer { slug: string; name: string; status: string; source: 'claude.ai' | 'plugin' | 'local'; tools: string[] }
+export interface McpState { enabled: string[]; scan: { at: string; claudeCodeVersion: string | null; servers: McpServer[] } | null; scanning: boolean }
+
 /** פעולה מהלוח (שלב 4): POST עם כותרת ההגנה. זורק שגיאה עם ההודעה מהסוכן. */
 export async function act<T = any>(path: string, body: unknown = {}): Promise<T> {
   const r = await fetch('/api' + path, {
