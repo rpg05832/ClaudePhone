@@ -24,12 +24,13 @@ interface CheckItem { id: string; name: string; state: string; detail: string; i
 interface NetCheck { host: string; purpose: string; state: 'ok' | 'blocked' | 'unreachable' }
 interface Report { items: CheckItem[]; network: NetCheck[] }
 interface JobStep { id: string; name: string; state: string; progress: number | null; detail: string }
-interface Job { id: string; kind: string; state: 'running' | 'done' | 'failed'; steps: JobStep[]; error: string | null }
+interface Job { id: string; kind: string; state: 'running' | 'done' | 'failed'; steps: JobStep[]; error: string | null; loginUrl?: string | null; needsCode?: boolean }
 interface Status {
   mode: 'setup' | 'running';
   done: { claude: boolean; yemot: boolean; phones: boolean; pin: boolean; projects: boolean; finished: boolean };
   yemot: { extension: string }; phones: string[]; projectsParent: string; projectsExtra: string[];
   claudeProjectsDir?: string | null; desktopProjectsDir?: string;
+  platform?: string; osName?: string; gui?: boolean;
 }
 
 const STEPS = ['ברוכים הבאים', 'בדיקת המחשב', 'התקנת רכיבים', 'חיבור ל-Claude', 'ימות המשיח', 'טלפונים וקוד', 'פרויקטים', 'העדפות', 'הפעלה ובדיקה'] as const;
@@ -234,6 +235,9 @@ function ClaudeLogin({ auth, rerun, next, back }: { auth?: CheckItem; rerun: () 
   const job = useJob(jobId, () => rerun());
   const ok = auth?.state === 'ok' || job?.state === 'done';
   const start = async () => { setErr(null); try { setJobId((await post<Job>('/claude-login', {})).id); } catch (e: any) { setErr(e.message); } };
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState(false);
+  const sendCode = async () => { setErr(null); try { await post('/claude-login-code', { jobId, code }); setSent(true); setCode(''); } catch (e: any) { setErr(e.message); } };
   return (
     <div>
       <h1>חיבור ל-Claude</h1>
@@ -245,7 +249,18 @@ function ClaudeLogin({ auth, rerun, next, back }: { auth?: CheckItem; rerun: () 
             <li>היכנס לחשבון ואשר את החיבור.</li>
             <li>חזור לכאן. האשף יזהה את החיבור לבד.</li>
           </ol>
-          {job?.state === 'running' && <p className="muted">ממתין לאישור בדפדפן…</p>}
+          {job?.state === 'running' && !job.loginUrl && <p className="muted">ממתין לאישור בדפדפן…</p>}
+          {job?.state === 'running' && job.loginUrl && (
+            <div className="card">
+              <p>אם דף ההתחברות לא נפתח לבד (למשל כשהתוכנה רצה על שרת בלי מסך), פתח את הקישור הזה בכל מחשב או טלפון, אשר את החיבור, והדבק כאן את הקוד שיוצג:</p>
+              <p><a href={job.loginUrl} target="_blank" rel="noreferrer">פתיחת דף ההתחברות של Claude</a></p>
+              <div className="row">
+                <input className="grow" dir="ltr" value={code} onChange={e => setCode(e.target.value)} placeholder="הקוד מדף האישור" aria-label="קוד אישור" />
+                <button className="btn" onClick={sendCode} disabled={!code.trim()}>שלח קוד</button>
+              </div>
+              {sent && <p className="muted">{job.steps[0]?.detail}</p>}
+            </div>
+          )}
         </>
       )}
       {(err || job?.error) && <div className="error">{err || job?.error}</div>}
@@ -397,7 +412,7 @@ function ProjectsStep({ status, next, back }: { status: Status | null; next: () 
       </div>
       <div className="row chips">
         {status?.claudeProjectsDir && <button type="button" className={`chip ${parent === status.claudeProjectsDir ? 'on' : ''}`} onClick={() => setParent(status.claudeProjectsDir!)}>התיקייה של Claude (עם הפרויקטים של Cowork)</button>}
-        {status?.desktopProjectsDir && <button type="button" className={`chip ${parent === status.desktopProjectsDir ? 'on' : ''}`} onClick={() => setParent(status.desktopProjectsDir!)}>ClaudeProjects בשולחן העבודה</button>}
+        {status?.desktopProjectsDir && <button type="button" className={`chip ${parent === status.desktopProjectsDir ? 'on' : ''}`} onClick={() => setParent(status.desktopProjectsDir!)}>{status.platform === 'linux' && status.gui === false ? 'ClaudeProjects בתיקיית הבית' : 'ClaudeProjects בשולחן העבודה'}</button>}
       </div>
       <p className="hint">אפשר לשנות את המיקום אחר כך בלוח הבקרה, בלשונית "פרויקטים", וגם להעביר לשם את הפרויקטים הקיימים.</p>
 
@@ -430,7 +445,7 @@ function ProjectsStep({ status, next, back }: { status: Status | null; next: () 
         </>
       )}
 
-      <label className="field"><span>תיקיות נוספות (רשות, נתיב מלא בכל שורה)</span><textarea rows={2} value={extra} onChange={e => setExtra(e.target.value)} dir="ltr" placeholder="C:\Users\...\MyProject" /></label>
+      <label className="field"><span>תיקיות נוספות (רשות, נתיב מלא בכל שורה)</span><textarea rows={2} value={extra} onChange={e => setExtra(e.target.value)} dir="ltr" placeholder={status?.platform === 'linux' ? '/home/.../MyProject' : 'C:\\Users\\...\\MyProject'} /></label>
       <p className="hint">Claude יעבוד רק בתוך התיקייה של הפרויקט שבחרת בשיחה. תיקייה שתוריד את הסימון ממנה תצא מהטלפון, וההיסטוריה שלה נשמרת.</p>
       {err && <div className="error">{err}</div>}
       <div className="wiz-nav"><button className="btn primary" type="submit" disabled={busy}>שמור והמשך</button><button className="btn" type="button" onClick={back}>חזרה</button></div>
@@ -532,8 +547,10 @@ function Finish({ status, back }: { status: Status | null; back: () => void }) {
               <p>הכל מוכן. בלחיצה על "הפעל":</p>
               <ul className="wiz-list">
                 <li>הסוכן יעלה מחדש במצב מלא, ויחבר את השלוחה בימות למחשב.</li>
-                <li>הוא יופעל אוטומטית בכל פעם שנכנסים ל-Windows.</li>
-                <li>בשולחן העבודה יהיה קיצור דרך ללוח הבקרה.</li>
+                {status?.platform === 'linux'
+                  ? <li>הוא יופעל אוטומטית עם הפעלת המחשב (שירות systemd).</li>
+                  : <li>הוא יופעל אוטומטית בכל פעם שנכנסים ל-Windows.</li>}
+                {status?.gui !== false && <li>בשולחן העבודה יהיה קיצור דרך ללוח הבקרה.</li>}
               </ul>
             </>
           )}

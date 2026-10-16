@@ -13,14 +13,15 @@ import { SetupJobs, type InstallItem } from './jobs.ts';
 import { knownFolders } from './known-folders.ts';
 import type { ClaudeHistory } from '../history/claude-history.ts';
 import { desktopShortcutScript, startupScript, pickFolder } from '../web/open.ts';
-import { defaultProjectsParent, claudeProjectsDir } from '../projects-location.ts';
+import { defaultProjectsParent, claudeProjectsDir, desktopProjectsDir } from '../projects-location.ts';
+import { isWin, hasGui, cloudflaredFileName, pickFolderLinux, installLinuxAutostart, installLinuxShortcuts, appDirOf, osName } from '../platform.ts';
 import { log } from '../log.ts';
 
 export interface SetupDeps {
   cfg: Config;
   store: Store;
   mode: 'setup' | 'running';
-  /** נתיב launcher.vbs בהתקנה (להפעלה אוטומטית); null בהתקנת פיתוח. */
+  /** נתיב המפעיל בהתקנה (launcher.vbs ב-Windows, launcher.sh בלינוקס), להפעלה אוטומטית; null בהתקנת פיתוח. */
   launcherPath: string | null;
   /** קיצור הדרך ללוח הבקרה (כתובת עם אסימון). */
   dashboardUrl: () => string;
@@ -43,6 +44,10 @@ export interface SetupStatus {
   claudeProjectsDir: string | null;
   desktopProjectsDir: string;
   projectsExtra: string[];
+  /** המערכת: 'win32' או 'linux', ושם להצגה; gui: יש מסך (בשרת לינוקס אין). */
+  platform: string;
+  osName: string;
+  gui: boolean;
 }
 
 export function needsSetup(cfg: Config): boolean {
@@ -79,8 +84,11 @@ export class SetupApi {
       phones: c.phones.allowed.map(p => '•••' + p.slice(-4)),
       projectsParent: /\\USER\\/.test(c.projects.newProjectsParent) ? defaultProjectsParent() : c.projects.newProjectsParent,
       claudeProjectsDir: claudeProjectsDir(),
-      desktopProjectsDir: join(homedir(), 'Desktop', 'ClaudeProjects'),
+      desktopProjectsDir: desktopProjectsDir(),
       projectsExtra: c.projects.list.map(p => p.path),
+      platform: process.platform,
+      osName: osName(),
+      gui: hasGui(),
     };
   }
 
@@ -95,11 +103,12 @@ export class SetupApi {
     }
     if (method === 'GET' && path === '/known-folders') {
       const parent = this.status().projectsParent;
-      const inParent = (p: string) => { const a = p.toLowerCase(), b = parent.toLowerCase().replace(/[\\/]+$/, ''); return a !== b && (a.startsWith(b + '\\') || a.startsWith(b + '/')); };
+      const norm = (x: string) => isWin ? x.toLowerCase() : x;
+      const inParent = (p: string) => { const a = norm(p), b = norm(parent).replace(/[\\/]+$/, ''); return a !== b && (a.startsWith(b + '\\') || a.startsWith(b + '/')); };
       const list = knownFolders({ history: this.d.history, exclude: [dirname(this.root), parent] .filter(Boolean) });
-      const chosen = new Set(c.projects.list.map(p => p.path.toLowerCase()));
+      const chosen = new Set(c.projects.list.map(p => norm(p.path)));
       // תיקיות בתוך תיקיית הפרויקטים נרשמות ממילא; מציגים רק את השאר
-      return ok(list.filter(f => !inParent(f.path)).map(f => ({ ...f, selected: chosen.has(f.path.toLowerCase()) })));
+      return ok(list.filter(f => !inParent(f.path)).map(f => ({ ...f, selected: chosen.has(norm(f.path)) })));
     }
     let m = path.match(/^\/jobs\/([\w-]+)$/);
     if (method === 'GET' && m) { const j = this.jobs.get(m[1]); return j ? ok(j) : { code: 404, json: { error: 'לא נמצא' } }; }
@@ -113,10 +122,15 @@ export class SetupApi {
           cloudflaredPath: this.cloudflaredPath(),
           pythonConfigured: c.stt.python,
           onPython: (p) => { c.stt.python = p; saveUserConfig({ stt: { python: p } }, this.root); },
+          root: this.root,
         });
         return ok(job);
       }
       case '/claude-login': return ok(this.jobs.startClaudeLogin());
+      case '/claude-login-code': {
+        if (!this.jobs.submitLoginCode(String(body?.jobId ?? ''), String(body?.code ?? ''))) return bad('הקוד לא תקין, או שההתחברות כבר הסתיימה. התחל מחדש');
+        return ok({ sent: true });
+      }
 
       case '/yemot': {
         const token = String(body?.token ?? '').trim();
@@ -187,8 +201,10 @@ export class SetupApi {
       }
 
       case '/pick-folder': {
-        const picked = await pickFolder(String(body?.initial ?? '') || null, String(body?.title ?? 'בחר תיקייה'));
-        return ok({ path: picked });
+        const initial = String(body?.initial ?? '') || null, title = String(body?.title ?? 'בחר תיקייה');
+        if (isWin) return ok({ path: await pickFolder(initial, title) });
+        try { return ok({ path: await pickFolderLinux(initial, title) }); }
+        catch (e) { return bad(e instanceof Error ? e.message : String(e)); }
       }
 
       case '/finish': {
@@ -198,8 +214,11 @@ export class SetupApi {
         const notes: string[] = [];
         if (this.d.launcherPath) {
           // קיצור דרך בתיקיית ההפעלה (ולא משימה מתוזמנת, שנכשלת כשבנתיב יש עברית)
-          const r = this.d.makeShortcut ? { code: 0 } : await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', startupScript(this.d.launcherPath)], 60_000);
-          notes.push(r.code === 0 ? 'הסוכן יעלה אוטומטית בכל כניסה ל-Windows' : 'רישום ההפעלה האוטומטית נכשל');
+          if (this.d.makeShortcut) notes.push(isWin ? 'הסוכן יעלה אוטומטית בכל כניסה ל-Windows' : 'הסוכן יעלה אוטומטית עם הפעלת המחשב');
+          else if (isWin) {
+            const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', startupScript(this.d.launcherPath)], 60_000);
+            notes.push(r.code === 0 ? 'הסוכן יעלה אוטומטית בכל כניסה ל-Windows' : 'רישום ההפעלה האוטומטית נכשל');
+          } else notes.push(installLinuxAutostart(appDirOf(this.d.launcherPath), this.d.launcherPath).note);
         }
         notes.push(await this.createShortcut());
         // אחרי שהתשובה נשלחת: הסוכן עולה מחדש במצב מלא (מנהרה, ימות, טלפון)
@@ -219,12 +238,15 @@ export class SetupApi {
   }
 
   private cloudflaredPath(): string {
-    return this.cfg.tunnel.cloudflaredPath || join(dirname(this.cfg.dataDir), 'bin', 'cloudflared.exe');
+    return this.cfg.tunnel.cloudflaredPath || join(dirname(this.cfg.dataDir), 'bin', cloudflaredFileName());
   }
 
   private async createShortcut(): Promise<string> {
     if (this.d.makeShortcut) return this.d.makeShortcut();
-    if (process.platform !== 'win32') return 'קיצור דרך נוצר רק ב-Windows';
+    if (!isWin) {
+      if (!this.d.launcherPath) return 'בגרסת פיתוח לא נוצר קיצור דרך';
+      return installLinuxShortcuts(appDirOf(this.d.launcherPath), this.d.launcherPath).note;
+    }
     const r = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', desktopShortcutScript(this.d.dashboardUrl(), this.d.launcherPath)], 30_000);
     return r.code === 0 ? 'נוצר קיצור דרך "Claude בטלפון" בשולחן העבודה: מפעיל את התוכנה ופותח את הלוח' : 'יצירת קיצור הדרך נכשלה';
   }

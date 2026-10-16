@@ -48,7 +48,7 @@ test('עדכון: מזהה גרסה חדשה, מוריד, מאמת ומריץ א
   const gh = fakeGitHub({ version: '0.7.0', body });
   const launched: string[] = [];
   const dir = mkdtempSync(join(tmpdir(), 'cpu-'));
-  const u = new Updater({ repo: 'a/b', current: '0.6.2', fetch: gh.f, downloadDir: dir, launch: (exe) => launched.push(exe) });
+  const u = new Updater({ platform: 'win32', repo: 'a/b', current: '0.6.2', fetch: gh.f, downloadDir: dir, launch: (exe) => launched.push(exe) });
   const s = await u.check();
   assert.equal(s.available, true); assert.equal(s.latest, '0.7.0'); assert.equal(s.error, null); assert.equal(s.notes, 'מה חדש');
   await u.install();
@@ -61,29 +61,29 @@ test('עדכון: מזהה גרסה חדשה, מוריד, מאמת ומריץ א
 
 test('עדכון: אין גרסה חדשה, מאגר פרטי, וחתימה שלא תואמת', async () => {
   const body = Buffer.from('x'.repeat(1000));
-  const same = new Updater({ repo: 'a/b', current: '0.7.0', fetch: fakeGitHub({ version: '0.7.0', body }).f });
+  const same = new Updater({ platform: 'win32', repo: 'a/b', current: '0.7.0', fetch: fakeGitHub({ version: '0.7.0', body }).f });
   assert.equal((await same.check()).available, false);
   await assert.rejects(same.install(), /אין גרסה חדשה/);
 
-  const priv = new Updater({ repo: 'a/b', current: '0.6.0', fetch: fakeGitHub({ version: '0.7.0', body, status: 404 }).f });
+  const priv = new Updater({ platform: 'win32', repo: 'a/b', current: '0.6.0', fetch: fakeGitHub({ version: '0.7.0', body, status: 404 }).f });
   assert.match((await priv.check()).error ?? '', /פרטי/);
 
   const launched: string[] = [];
   const dir = mkdtempSync(join(tmpdir(), 'cpu-'));
-  const bad = new Updater({ repo: 'a/b', current: '0.6.0', fetch: fakeGitHub({ version: '0.7.0', body, digest: 'bad' }).f, downloadDir: dir, launch: (e) => launched.push(e) });
+  const bad = new Updater({ platform: 'win32', repo: 'a/b', current: '0.6.0', fetch: fakeGitHub({ version: '0.7.0', body, digest: 'bad' }).f, downloadDir: dir, launch: (e) => launched.push(e) });
   await assert.rejects(bad.install(), /לא תואם/);
   assert.equal(bad.state.phase, 'failed'); assert.equal(launched.length, 0);
   assert.equal(readdirSync(dir).length, 0);
 
   // בלי digest מ-GitHub: משתמשים בקובץ .sha256 שלצד ההתקנה
   const side = fakeGitHub({ version: '0.7.0', body, digest: 'none', sideSha: true });
-  const u2 = new Updater({ repo: 'a/b', current: '0.6.0', fetch: side.f, downloadDir: mkdtempSync(join(tmpdir(), 'cpu-')), launch: (e) => launched.push(e) });
+  const u2 = new Updater({ platform: 'win32', repo: 'a/b', current: '0.6.0', fetch: side.f, downloadDir: mkdtempSync(join(tmpdir(), 'cpu-')), launch: (e) => launched.push(e) });
   await u2.install();
   assert.equal(launched.length, 1);
 });
 
 test('עדכון: כבוי בגרסת פיתוח, ושם מאגר לא תקין נדחה', async () => {
-  const u = new Updater({ repo: 'a/b', current: null, fetch: (async () => { throw new Error('לא אמור לפנות'); }) as any });
+  const u = new Updater({ platform: 'win32', repo: 'a/b', current: null, fetch: (async () => { throw new Error('לא אמור לפנות'); }) as any });
   assert.equal(u.state.enabled, false);
   assert.equal((await u.check()).checkedAt, null);
   await assert.rejects(u.install(), /פיתוח/);

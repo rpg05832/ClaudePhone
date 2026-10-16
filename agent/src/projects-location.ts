@@ -11,6 +11,7 @@ import { saveUserConfig } from './config.ts';
 import type { Store } from './store/db.ts';
 import { samePath, defaultProjectsDir, parseSessionMeta } from './history/claude-history.ts';
 import { log } from './log.ts';
+import { linuxDesktopDir } from './platform.ts';
 
 /** התיקייה שבה Claude (Desktop/Cowork) שומר פרויקטים, אם קיימת במחשב. */
 export function claudeProjectsDir(home = homedir()): string | null {
@@ -20,7 +21,13 @@ export function claudeProjectsDir(home = homedir()): string | null {
 
 /** ברירת המחדל להתקנה חדשה: התיקייה של Claude אם יש, אחרת ClaudeProjects בשולחן העבודה. */
 export function defaultProjectsParent(home = homedir()): string {
-  return claudeProjectsDir(home) ?? join(home, 'Desktop', 'ClaudeProjects');
+  return claudeProjectsDir(home) ?? desktopProjectsDir(home);
+}
+
+/** ClaudeProjects בשולחן העבודה. בלינוקס בלי שולחן עבודה (שרת): בתיקיית הבית. */
+export function desktopProjectsDir(home = homedir()): string {
+  if (process.platform === 'linux') return join(linuxDesktopDir(home) ?? home, 'ClaudeProjects');
+  return join(home, 'Desktop', 'ClaudeProjects');
 }
 
 /** איך Claude Code קורא לתיקיית התמלילים של תיקיית עבודה. */
@@ -68,7 +75,7 @@ export class ProjectsLocation {
     const claude = claudeProjectsDir(home);
     const sugg = [
       ...(claude ? [{ path: claude, label: 'התיקייה של Claude (שם נמצאים הפרויקטים של Cowork)' }] : []),
-      { path: join(home, 'Desktop', 'ClaudeProjects'), label: 'ClaudeProjects בשולחן העבודה' },
+      { path: desktopProjectsDir(home), label: process.platform === 'linux' && !linuxDesktopDir(home) ? 'ClaudeProjects בתיקיית הבית' : 'ClaudeProjects בשולחן העבודה' },
       { path: join(home, 'Documents', 'ClaudeProjects'), label: 'ClaudeProjects במסמכים' },
     ];
     return {

@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import type { ClaudeHistory } from '../history/claude-history.ts';
+import { claudeDesktopDataDir } from '../platform.ts';
 
 export type FolderSource = 'code' | 'desktop' | 'cowork';
 
@@ -36,7 +37,8 @@ export function knownFolders(opts: { history?: ClaudeHistory; appData?: string; 
   for (const s of opts.history?.list() ?? []) add(s.cwd, s.source === 'desktop' ? 'desktop' : 'code', s.lastActiveAt);
 
   // 2. Cowork: פרויקטים (spaces), שיחות מקומיות ושיחות ענן עם תיקיות מקומיות
-  const root = join(opts.appData ?? process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude', 'local-agent-mode-sessions');
+  const claudeDir = opts.appData ? join(opts.appData, 'Claude') : claudeDesktopDataDir();
+  const root = join(claudeDir, 'local-agent-mode-sessions');
   for (const dir of subdirs(root).flatMap(subdirs)) {
     const spaces = readJson(join(dir, 'spaces.json'));
     for (const sp of Array.isArray(spaces?.spaces) ? spaces.spaces : []) {
@@ -54,11 +56,11 @@ export function knownFolders(opts: { history?: ClaudeHistory; appData?: string; 
   }
 
   const ex = (opts.exclude ?? []).map(key);
-  const claudeData = key(join(opts.appData ?? process.env.APPDATA ?? '', 'Claude'));
+  const claudeData = key(claudeDir);
   const home = key(homedir());
   return [...map.entries()]
     // בלי תיקיות זמניות (בדיקות) ובלי שורש של כונן
-    .filter(([k]) => (opts.keepTemp || !/[\\/]temp[\\/]/i.test(k)) && !/^[a-z]:\\?$/i.test(k) && k !== '/')
+    .filter(([k]) => (opts.keepTemp || (!/[\\/]temp[\\/]/i.test(k) && !k.startsWith('/tmp/'))) && !/^[a-z]:\\?$/i.test(k) && k !== '/')
     .filter(([k]) => k !== home && !k.startsWith(claudeData) && !ex.some(e => k === e || k.startsWith(e + (process.platform === 'win32' ? '\\' : '/'))))
     .map(([, f]) => f)
     .filter(f => safe(() => statSync(f.path).isDirectory(), false))

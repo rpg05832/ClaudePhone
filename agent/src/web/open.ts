@@ -3,6 +3,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { openUrlLinux, hasGui, which } from '../platform.ts';
 
 export function findEdge(): string | null {
   const c = [
@@ -14,6 +15,14 @@ export function findEdge(): string | null {
 }
 
 export function openDashboardWindow(url: string): void {
+  if (process.platform === 'linux') {
+    // לינוקס: חלון אפליקציה של Chrome/Chromium אם מותקן, אחרת הדפדפן הרגיל. בלי מסך: לא פותחים כלום.
+    if (!hasGui()) return;
+    const chrome = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser'].map(b => which(b)).find(Boolean);
+    if (chrome) { const c = spawn(chrome, [`--app=${url}`, '--window-size=1280,860'], { detached: true, stdio: 'ignore' }); c.on('error', () => openUrlLinux(url)); c.unref(); }
+    else openUrlLinux(url);
+    return;
+  }
   if (process.platform !== 'win32') return;
   const edge = findEdge();
   if (edge) spawn(edge, [`--app=${url}`, '--window-size=1280,860'], { detached: true, stdio: 'ignore' }).unref();

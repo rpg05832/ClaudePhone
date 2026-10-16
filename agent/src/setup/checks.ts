@@ -1,9 +1,10 @@
 // אשף ההגדרה: בדיקת המחשב (אפיון 7). קריאה בלבד: שום דבר לא מותקן כאן.
 import { execFile } from 'node:child_process';
-import { existsSync, readdirSync, statfsSync, statSync, lstatSync } from 'node:fs';
+import { existsSync, readdirSync, statfsSync, statSync, lstatSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, release } from 'node:os';
 import { AGENT_ROOT } from '../config.ts';
+import { isWin, isLinux, osName, sdkBinaryPackage, cloudflaredUrl, windowsPythonDirs } from '../platform.ts';
 
 export type CheckState = 'ok' | 'missing' | 'old' | 'blocked' | 'error' | 'optional';
 
@@ -21,7 +22,11 @@ export interface NetCheck { host: string; purpose: string; state: 'ok' | 'blocke
 
 export const MODEL_ID = 'ivrit-ai/whisper-large-v3-turbo-ct2';
 export const PYTHON_URL = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe';
-export const CLOUDFLARED_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
+export const CLOUDFLARED_URL = cloudflaredUrl();
+/** לינוקס: Python נייד (python-build-standalone) שמותקן בתוך תיקיית הנתונים, בלי sudo ובלי תלות בהפצה. */
+export const STANDALONE_PYTHON_API = 'https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest';
+export function privatePythonDir(root = AGENT_ROOT): string { return join(root, 'data', 'python'); }
+export function privatePythonExe(root = AGENT_ROOT): string { return isWin ? join(privatePythonDir(root), 'python.exe') : join(privatePythonDir(root), 'bin', 'python3'); }
 
 /** הכתובות שהמערכת צריכה (לבקשת פתיחה בנטפרי אם חסומות). */
 export const HOSTS: { host: string; purpose: string }[] = [
@@ -30,7 +35,7 @@ export const HOSTS: { host: string; purpose: string }[] = [
   { host: 'www.call2all.co.il', purpose: 'ימות המשיח' },
   { host: 'huggingface.co', purpose: 'הורדת מודל התמלול' },
   { host: 'github.com', purpose: 'הורדת רכיב המנהרה' },
-  { host: 'www.python.org', purpose: 'הורדת Python' },
+  ...(isWin ? [{ host: 'www.python.org', purpose: 'הורדת Python' }] : [{ host: 'api.github.com', purpose: 'הורדת Python' }]),
   { host: 'pypi.org', purpose: 'התקנת רכיב התמלול' },
   { host: 'files.pythonhosted.org', purpose: 'התקנת רכיב התמלול' },
 ];
@@ -56,8 +61,9 @@ export function packageDir(name: string): string | null {
 
 /** קובץ ההרצה של Claude Code שמגיע עם ה-Agent SDK (לא צריך התקנה נפרדת). */
 export function sdkClaudeExe(): string | null {
-  const d = packageDir('@anthropic-ai/claude-agent-sdk-win32-x64');
-  const exe = d ? join(d, 'claude.exe') : null;
+  const b = sdkBinaryPackage();
+  const d = packageDir(b.pkg);
+  const exe = d ? join(d, b.file) : null;
   return exe && existsSync(exe) ? exe : null;
 }
 
@@ -82,22 +88,22 @@ export async function claudeAuth(): Promise<{ loggedIn: boolean; method: string 
 export async function findPython(configured?: string): Promise<{ path: string | null; version: string | null; fasterWhisper: string | null }> {
   const cands: [string, string[]][] = [];
   if (configured && configured !== 'python') cands.push([configured, []]);
-  const roots = [join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Python'), process.env.ProgramFiles ?? 'C:\\Program Files', 'C:\\'];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    let dirs: string[] = [];
-    try { dirs = readdirSync(root).filter(d => /^Python3\d+$/i.test(d)).sort((a, b) => Number(b.slice(7)) - Number(a.slice(7))); } catch { /* */ }
-    for (const d of dirs) { const exe = join(root, d, 'python.exe'); if (existsSync(exe)) cands.push([exe, []]); }
+  if (existsSync(privatePythonExe())) cands.push([privatePythonExe(), []]);
+  if (isWin) {
+    for (const exe of windowsPythonDirs()) cands.push([exe, []]);
+    cands.push(['python', []], ['py', ['-3']]);
+  } else {
+    cands.push(['python3', []], ['python', []]);
   }
-  cands.push(['python', []], ['py', ['-3']]);
   let first: { path: string; version: string; fasterWhisper: string | null } | null = null;
   const seen = new Set<string>();
   for (const [cmd, pre] of cands) {
     const r = await run(cmd, [...pre, '-c', 'import sys;print(sys.executable);print("%d.%d.%d"%sys.version_info[:3])'], 15_000);
     if (r.code !== 0 || !r.out) continue;
     const [exe, ver] = r.out.split(/\r?\n/);
-    if (!exe || seen.has(exe.toLowerCase())) continue;
-    seen.add(exe.toLowerCase());
+    const k = isWin ? exe.toLowerCase() : exe;
+    if (!exe || seen.has(k)) continue;
+    seen.add(k);
     const [maj, min] = (ver ?? '').split('.').map(Number);
     if (maj !== 3 || min < 10) continue;
     const fw = await run(exe, ['-c', 'import faster_whisper;print(faster_whisper.__version__)'], 30_000);
@@ -147,9 +153,7 @@ export interface SystemReport { items: CheckItem[]; network: NetCheck[]; python:
 
 export async function systemReport(opts: { dataDir: string; cloudflaredPath: string; pythonConfigured?: string }): Promise<SystemReport> {
   const items: CheckItem[] = [];
-  const winVer = release();   // למשל 10.0.26300
-  const build = Number(winVer.split('.')[2] ?? 0);
-  items.push({ id: 'windows', name: 'Windows', required: true, state: process.platform !== 'win32' ? 'error' : build >= 17763 ? 'ok' : 'old', detail: process.platform === 'win32' ? `גרסה ${winVer}` : 'המערכת נתמכת רק ב-Windows' });
+  items.push(osCheck());
 
   let freeGb = 0;
   try { const s = statfsSync(opts.dataDir); freeGb = Math.round((s.bavail * s.bsize) / 1e9 * 10) / 10; } catch { /* */ }
@@ -162,7 +166,7 @@ export async function systemReport(opts: { dataDir: string; cloudflaredPath: str
   items.push({ id: 'claudeAuth', name: 'התחברות ל-Claude', required: true, state: auth.loggedIn ? 'ok' : 'missing', detail: auth.detail });
 
   const py = await findPython(opts.pythonConfigured);
-  items.push({ id: 'python', name: 'Python (לתמלול)', required: true, state: py.path ? 'ok' : 'missing', detail: py.path ? `גרסה ${py.version}` : 'לא נמצא Python 3.10 ומעלה', installable: !py.path, sizeMb: 26 });
+  items.push({ id: 'python', name: 'Python (לתמלול)', required: true, state: py.path ? 'ok' : 'missing', detail: py.path ? `גרסה ${py.version}` : 'לא נמצא Python 3.10 ומעלה', installable: !py.path, sizeMb: isWin ? 26 : 32 });
   items.push({ id: 'fasterWhisper', name: 'רכיב התמלול faster-whisper', required: true, state: py.fasterWhisper ? 'ok' : 'missing', detail: py.fasterWhisper ? `גרסה ${py.fasterWhisper}` : 'לא מותקן', installable: !py.fasterWhisper, sizeMb: 120 });
   const model = modelPresent();
   items.push({ id: 'model', name: 'מודל תמלול עברית (ivrit-ai)', required: true, state: model ? 'ok' : 'missing', detail: model ? 'הורד' : 'לא הורד', installable: !model, sizeMb: 1600 });
@@ -173,4 +177,26 @@ export async function systemReport(opts: { dataDir: string; cloudflaredPath: str
   items.push({ id: 'git', name: 'Git (לא חובה)', required: false, state: git.code === 0 ? 'ok' : 'optional', detail: git.code === 0 ? git.out : 'לא מותקן. מומלץ, כדי ש-Claude ינהל היסטוריית שינויים בפרויקטים' });
 
   return { items, network: await checkNetwork(), python: py };
+}
+
+/** בדיקת מערכת ההפעלה: Windows 10 1809 ומעלה, או לינוקס 64 ביט (x64/arm64) עם glibc. */
+export function osCheck(platform = process.platform, rel = release(), arch = process.arch, musl?: boolean): CheckItem {
+  if (platform === 'win32') {
+    const build = Number(rel.split('.')[2] ?? 0);
+    return { id: 'os', name: 'Windows', required: true, state: build >= 17763 ? 'ok' : 'old', detail: `גרסה ${rel}` };
+  }
+  if (platform === 'linux') {
+    const okArch = arch === 'x64' || arch === 'arm64';
+    const m = musl ?? (() => { try { return !(process.report?.getReport() as any)?.header?.glibcVersionRuntime; } catch { return false; } })();
+    if (!okArch) return { id: 'os', name: 'לינוקס', required: true, state: 'error', detail: `מעבד ${arch} לא נתמך (נדרש x64 או arm64)` };
+    if (m) return { id: 'os', name: 'לינוקס', required: true, state: 'error', detail: 'הפצה מבוססת musl (כמו Alpine) לא נתמכת. נדרשת הפצה רגילה (Ubuntu, Debian, Fedora וכו\')' };
+    return { id: 'os', name: 'לינוקס', required: true, state: 'ok', detail: `${linuxDistro() ?? 'לינוקס'} · ${arch}` };
+  }
+  return { id: 'os', name: osName(), required: true, state: 'error', detail: 'המערכת נתמכת ב-Windows ובלינוקס' };
+}
+
+/** שם ההפצה מ-/etc/os-release. */
+export function linuxDistro(): string | null {
+  if (!isLinux) return null;
+  try { return /^PRETTY_NAME="?([^"\n]+)"?/m.exec(readFileSync('/etc/os-release', 'utf8'))?.[1] ?? null; } catch { return null; }
 }

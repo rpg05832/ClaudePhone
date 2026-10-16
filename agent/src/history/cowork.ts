@@ -8,6 +8,7 @@ import { existsSync, readdirSync, readFileSync, statSync, mkdirSync, linkSync, u
 import { join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { parseMessages, defaultProjectsDir, type HistoryMessage } from './claude-history.ts';
+import { claudeDesktopDataDir } from '../platform.ts';
 
 export interface CoworkSession {
   id: string;                  // cliSessionId: המזהה שאיתו ממשיכים את השיחה
@@ -26,7 +27,8 @@ export interface CoworkSession {
 }
 
 export function defaultCoworkRoot(): string {
-  return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude', 'local-agent-mode-sessions');
+  // בלינוקס אין Claude Desktop רשמי: התיקייה בדרך כלל לא קיימת, והרשימה פשוט ריקה
+  return join(claudeDesktopDataDir(), 'local-agent-mode-sessions');
 }
 
 interface Cached { metaKey: string; tr: { file: string; projDir: string } | null; base: CoworkSession | null; lastMeta: number }

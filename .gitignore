@@ -23,3 +23,5 @@ phase0/sdk-test/package-lock.json
 
 installer/build/
 installer/output/
+
+installer/build-linux/

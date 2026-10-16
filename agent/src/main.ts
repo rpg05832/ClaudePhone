@@ -1,6 +1,8 @@
-// הסוכן: מאגר תפעולי, מנוע ביצוע, תמלול, שרת ימות ומנהרה. מופעל ע"י start-agent.ps1 (פיתוח) או launcher.vbs (התקנה).
+// הסוכן: מאגר תפעולי, מנוע ביצוע, תמלול, שרת ימות ומנהרה. מופעל ע"י start-agent.ps1 (פיתוח) או launcher.vbs (התקנה, Windows),
+// ובלינוקס ע"י שירות systemd של המשתמש או launcher.sh.
 // בלי הגדרה מלאה (טוקן ימות, שלוחה, טלפונים, PIN) הוא עולה במצב "הגדרה": רק לוח הבקרה עם האשף.
-// דגלים: --open פותח את הדפדפן; --no-open לא; --restarted (פנימי) ממתין שהמופע הקודם ישחרר את הפורט.
+// דגלים: --open פותח את הדפדפן; --no-open לא; --restarted (פנימי) ממתין שהמופע הקודם ישחרר את הפורט;
+// --open-only (המפעיל בלינוקס): לא מפעיל סוכן, רק מחכה שהסוכן (השירות) יעלה ופותח את הלוח.
 import { mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import net from 'node:net';
@@ -37,6 +39,7 @@ import { basename, resolve as resolvePath, relative as relPath, isAbsolute as is
 import { SetupApi, needsSetup } from './setup/routes.ts';
 import { packageDir, findPython } from './setup/checks.ts';
 import { statSync, unlinkSync, readFileSync } from 'node:fs';
+import { hasGui, sdkBinaryPackage, cloudflaredFileName, openFolder, openTerminal, writeClaudeScript, underSystemd, launcherFile, installLinuxAutostart, installLinuxShortcuts, osName } from './platform.ts';
 
 const args = process.argv.slice(2);
 const restarted = args.includes('--restarted');
@@ -46,7 +49,8 @@ initLog(join(cfg.dataDir, 'agent.log'));
 
 const setupMode = needsSetup(cfg);
 const wantOpen = args.includes('--open') || (setupMode && !args.includes('--no-open'));
-const dashToken = loadOrCreateToken(cfg.dashboard.tokenFile);
+// --open-only לא יוצר אסימון בעצמו (הסוכן שעולה יוצר אותו), כדי לא להתחרות על הקובץ
+const dashToken = args.includes('--open-only') ? '' : loadOrCreateToken(cfg.dashboard.tokenFile);
 const dashboardUrl = (hash = '') => `http://127.0.0.1:${cfg.dashboard.port}/?t=${dashToken}${hash}`;
 
 function openBrowser(url: string): void {
@@ -59,6 +63,18 @@ async function portFree(port: number): Promise<boolean> {
     const s = net.createServer().once('error', () => res(false)).once('listening', () => s.close(() => res(true)));
     s.listen(port, '127.0.0.1');
   });
+}
+// המפעיל בלינוקס: השירות מפעיל את הסוכן; כאן רק מחכים שהלוח יענה ופותחים אותו
+if (args.includes('--open-only')) {
+  for (let i = 0; i < 60 && await portFree(cfg.dashboard.port); i++) await new Promise(r => setTimeout(r, 500));
+  if (!(await portFree(cfg.dashboard.port))) {
+    const t = readSecretFile(cfg.dashboard.tokenFile) ?? '';
+    const url = `http://127.0.0.1:${cfg.dashboard.port}/?t=${t}${setupMode ? '#/setup' : ''}`;
+    openBrowser(url);
+    if (!hasGui()) console.log(`לוח הבקרה: ${url}`);
+  } else console.error('הסוכן לא עלה. בדוק: systemctl --user status claudephone');
+  setTimeout(() => process.exit(0), 300);
+  await new Promise(() => {});
 }
 const portsFree = async () => (await portFree(cfg.dashboard.port)) && (!restarted || await portFree(cfg.phoneServer.port));
 for (let i = 0; !(await portsFree()); i++) {
@@ -76,6 +92,8 @@ let beforeExit: () => void = () => {};
 function restart(): void {
   log('main', 'הפעלה מחדש');
   beforeExit();
+  // שירות systemd (לינוקס): יוצאים, ו-systemd מעלה מופע חדש (Restart=always). מופע מנותק היה נהרג יחד עם השירות.
+  if (underSystemd()) { setTimeout(() => process.exit(0), 200); return; }
   const rest = args.filter(a => a !== '--open' && a !== '--restarted');
   const child = spawn(process.execPath, [...process.execArgv, process.argv[1], ...rest, '--no-open', '--restarted'],
     { cwd: process.cwd(), detached: true, stdio: 'ignore', windowsHide: true });
@@ -123,7 +141,7 @@ if (setupMode) {
 const token = readSecretFile(cfg.yemot.tokenFile)!;
 const yemot = new YemotApi(token, cfg.yemot.apiBase);
 // Python לתמלול: הנתיב מההגדרות, ואם הוא לא קיים (או רק "python" ו-PATH שבור) מחפשים ושומרים את הנתיב המלא
-if (process.platform === 'win32' && (!isAbs(cfg.stt.python) || !existsSync(cfg.stt.python))) {
+if (!isAbs(cfg.stt.python) || !existsSync(cfg.stt.python)) {
   const py = await findPython(cfg.stt.python);
   if (py.path && py.path !== cfg.stt.python) {
     cfg.stt.python = py.path;
@@ -158,9 +176,9 @@ const live = new LiveHub();
 const liveTokenFile = join(cfg.dataDir, 'live.token');
 const liveToken = loadOrCreateToken(liveTokenFile);
 const liveMcpPath = join(cfg.dataDir, 'live-mcp.json');
-const liveCmdPath = join(cfg.dataDir, 'claude-live.cmd');
 /** Claude Code של ה-SDK (אותו קובץ שמריץ את המשימות), ואם אין: claude מה-PATH. */
-const claudeExe = (() => { const d = packageDir('@anthropic-ai/claude-agent-sdk-win32-x64'); return d ? join(d, 'claude.exe') : 'claude'; })();
+const claudeExe = (() => { const b = sdkBinaryPackage(); const d = packageDir(b.pkg); return d ? join(d, b.file) : 'claude'; })();
+let liveCmdPath = '';
 {
   const channelScript = join(AGENT_ROOT, 'channel', 'claudephone-channel.mjs');
   writeFileSync(liveMcpPath, JSON.stringify({ mcpServers: { claudephone: {
@@ -168,12 +186,7 @@ const claudeExe = (() => { const d = packageDir('@anthropic-ai/claude-agent-sdk-
     env: { CP_AGENT_URL: `http://127.0.0.1:${cfg.dashboard.port}`, CP_LIVE_TOKEN_FILE: liveTokenFile },
   } } }, null, 2));
   const DEV_CHANNELS_FLAG = '--dangerously-load-development-channels';
-  writeFileSync(liveCmdPath, [
-    '@echo off',
-    'chcp 65001 >nul',
-    `"${claudeExe}" --mcp-config "${liveMcpPath}" ${DEV_CHANNELS_FLAG} server:claudephone %*`,
-    '',
-  ].join('\r\n'), 'utf8');
+  liveCmdPath = writeClaudeScript(join(cfg.dataDir, 'claude-live'), claudeExe, ['--mcp-config', liveMcpPath, DEV_CHANNELS_FLAG, 'server:claudephone'], true);
 }
 /** הפרויקט של תיקיית סשן חי: פרויקט רשום שמכיל אותה, או פרויקט חדש (לא מוצג בתפריט 3) כדי שהמשימה תשויך למשהו. */
 function projectForCwd(cwd: string): string {
@@ -195,19 +208,16 @@ function openLiveTerminal(projectId: string): string {
   const p = store.getProject(projectId);
   if (!p) throw new Error('הפרויקט לא נמצא');
   if (!existsSync(p.path)) throw new Error('תיקיית הפרויקט לא קיימת');
-  spawn('cmd.exe', ['/c', 'start', 'Claude בטלפון', '/D', p.path, 'cmd.exe', '/k', liveCmdPath], { detached: true, stdio: 'ignore' }).unref();
+  openTerminal('Claude בטלפון', p.path, liveCmdPath);
   return p.path;
 }
 /** חלון טרמינל שממשיך שיחה קיימת בתיקייה שלה (כפתור "פתח בטרמינל" בלוח). המזהה מהאינדקס שלנו, לא מהלקוח. */
-const resumeCmdPath = join(cfg.dataDir, 'claude-resume.cmd');
-writeFileSync(resumeCmdPath, ['@echo off', 'chcp 65001 >nul', `"${claudeExe}" --resume %1`, ''].join('\r\n'), 'utf8');
+const resumeCmdPath = writeClaudeScript(join(cfg.dataDir, 'claude-resume'), claudeExe, ['--resume'], true);
 function openResumeTerminal(conversationId: string, cwd: string): void {
   if (!/^[\w-]+$/.test(conversationId)) throw new Error('מזהה שיחה לא תקין');
-  spawn('cmd.exe', ['/c', 'start', 'Claude Code', '/D', cwd, 'cmd.exe', '/k', resumeCmdPath, conversationId], { detached: true, stdio: 'ignore' }).unref();
+  openTerminal('Claude Code', cwd, resumeCmdPath, [conversationId]);
 }
-function openFolderWindow(path: string): void {
-  spawn('explorer.exe', [path], { detached: true, stdio: 'ignore' }).unref();
-}
+function openFolderWindow(path: string): void { openFolder(path); }
 
 const { query } = await import('@anthropic-ai/claude-agent-sdk');
 /** חיבורי MCP שפתוחים לטלפון, עם שמות להקראה ורשימת כל השרתים המוכרים (להסתרת השאר). */
@@ -284,7 +294,7 @@ notifier.start();
 // ---------- עדכון מתוך התוכנה, תיקיית הפרויקטים ----------
 const updater = new Updater({
   repo: cfg.update.repo, apiBase: cfg.update.apiBase, current: appVersion, checkHours: cfg.update.checkHours, auto: cfg.update.auto,
-  disabledReason: process.platform !== 'win32' ? 'העדכון פועל רק ב-Windows' : null,
+  disabledReason: process.platform !== 'win32' && process.platform !== 'linux' ? `העדכון לא זמין ב-${osName()}` : null,
   // עדכון אוטומטי רק כשאין עבודה: אין משימה פעילה, אין שיחת טלפון ואין בקשה שממתינה
   canAutoInstall: () => !tasks.listActive().length && !flow.activeCalls() && !store.pendingPermissionRequests().length,
 });
@@ -293,7 +303,7 @@ const location = new ProjectsLocation({
   cfg, store,
   busy: (projectId, path) => {
     if (tasks.listActive().some(t => t.projectId === projectId)) return 'יש משימה פעילה בפרויקט';
-    if (live.list().some(l => samePath(l.cwd, path) || resolvePath(l.cwd).toLowerCase().startsWith(resolvePath(path).toLowerCase() + '\\'))) return 'יש שיחה פתוחה בתיקייה הזו';
+    if (live.list().some(l => samePath(l.cwd, path) || isInsidePath(path, l.cwd))) return 'יש שיחה פתוחה בתיקייה הזו';
     return null;
   },
 });
@@ -363,7 +373,7 @@ async function connectTunnel(attempt = 1): Promise<void> {
     return;
   }
   try {
-    const exe = cfg.tunnel.cloudflaredPath || join(AGENT_ROOT, 'bin', 'cloudflared.exe');
+    const exe = cfg.tunnel.cloudflaredPath || join(AGENT_ROOT, 'bin', cloudflaredFileName());
     if (!existsSync(exe)) throw new Error(`cloudflared לא נמצא: ${exe}`);
     const t = await startQuickTunnel(exe, cfg.phoneServer.port);
     currentTunnelStop = t.stop;
@@ -390,6 +400,15 @@ if (process.platform === 'win32' && !existsSync(join(cfg.dataDir, 'shortcut-v3.d
   const sc = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', desktopShortcutScript(dashboardUrl(), launcherPath())], { windowsHide: true, stdio: 'ignore' });
   sc.on('exit', (code) => { if (code === 0) writeFileSync(join(cfg.dataDir, 'shortcut-v3.done'), new Date().toISOString()); });
 }
+// לינוקס (התקנה): שירות systemd וקיצורי דרך, פעם אחת
+if (process.platform === 'linux' && launcherPath() && !existsSync(join(cfg.dataDir, 'linux-integration-v1.done'))) {
+  try {
+    const a = installLinuxAutostart(join(AGENT_ROOT, '..'), launcherPath()!);
+    const sc = installLinuxShortcuts(join(AGENT_ROOT, '..'), launcherPath()!);
+    log('main', `${a.note}; ${sc.note}`);
+    if (a.ok) writeFileSync(join(cfg.dataDir, 'linux-integration-v1.done'), new Date().toISOString());
+  } catch (e) { logError('main', e, 'linux integration'); }
+}
 await connectTunnel();
 
 beforeExit = () => { stopping = true; updater.stop(); dash.close(); dash.closeAllConnections(); notifier.stop(); stt.stop(); currentTunnelStop(); store.close(); };
@@ -397,8 +416,14 @@ beforeExit = () => { stopping = true; updater.stop(); dash.close(); dash.closeAl
 
 /** בהתקנה (dist/agent.mjs) ה-launcher נמצא בתיקיית האפליקציה; בפיתוח אין הפעלה אוטומטית מהאשף. */
 function launcherPath(): string | null {
-  const p = join(AGENT_ROOT, '..', 'launcher.vbs');
+  const p = launcherFile(join(AGENT_ROOT, '..'));
   return existsSync(p) ? p : null;
+}
+
+/** האם child בתוך parent (path.relative: ב-Windows בלי הבחנה בין אותיות גדולות לקטנות, בלינוקס עם). */
+function isInsidePath(parent: string, child: string): boolean {
+  const r = relPath(resolvePath(parent), resolvePath(child));
+  return r !== '' && !r.startsWith('..') && !isAbs(r);
 }
 
 const shutdown = () => { log('main', 'הסוכן נסגר'); try { beforeExit(); } catch { /* */ } process.exit(0); };

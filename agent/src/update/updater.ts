@@ -1,11 +1,13 @@
 // עדכון מתוך התוכנה: בודק ב-GitHub Releases אם יש גרסה חדשה, מוריד את קובץ ההתקנה, מוודא שהוא תקין ומריץ אותו בשקט.
 // קובץ ההתקנה עוצר את הסוכן, מחליף את הקבצים (ההגדרות והנתונים נשמרים) ומפעיל אותו מחדש.
 //
-// מה נחשב גרסה: ה-Release האחרון (לא טיוטה ולא prerelease) במאגר שבהגדרות, עם קובץ ClaudePhone-Setup-<גרסה>.exe.
+// מה נחשב גרסה: ה-Release האחרון (לא טיוטה ולא prerelease) במאגר שבהגדרות, עם קובץ ClaudePhone-Setup-<גרסה>.exe (Windows)
+// או ClaudePhone-linux-<x64|arm64>-<גרסה>.tar.gz (לינוקס). בלינוקס, install.sh שבתיקיית ההתקנה פורס את הקובץ ומפעיל מחדש.
 // אימות: הגודל, ו-SHA-256 כש-GitHub מפרסם אותו (שדה digest) או כשיש לצד הקובץ קובץ .sha256.
 import { createWriteStream, mkdirSync, existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { AGENT_ROOT } from '../config.ts';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { log, logError } from '../log.ts';
@@ -42,9 +44,20 @@ export interface UpdaterOptions {
   launch?: (exe: string, logFile: string) => void;
   downloadDir?: string;
   disabledReason?: string | null;
+  /** המערכת והמעבד, לבחירת קובץ ההתקנה (בבדיקות: נדרס). ברירת מחדל: של המחשב הזה. */
+  platform?: NodeJS.Platform;
+  arch?: string;
 }
 
 const ASSET = /^ClaudePhone-Setup-(\d+\.\d+\.\d+)\.exe$/i;
+const ASSET_LINUX_X64 = /^ClaudePhone-linux-x64-(\d+\.\d+\.\d+)\.tar\.gz$/i;
+const ASSET_LINUX_ARM64 = /^ClaudePhone-linux-arm64-(\d+\.\d+\.\d+)\.tar\.gz$/i;
+
+/** שם קובץ ההתקנה למערכת ולמעבד. הקבוצה הראשונה היא הגרסה. */
+export function assetPattern(platform: NodeJS.Platform = process.platform, arch: string = process.arch): RegExp {
+  if (platform === 'linux') return arch === 'arm64' ? ASSET_LINUX_ARM64 : ASSET_LINUX_X64;
+  return ASSET;
+}
 const HEADERS = { 'User-Agent': 'ClaudePhone-updater', Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
 
 export function parseVersion(v: string | null | undefined): number[] | null {
@@ -64,8 +77,24 @@ export const REPO_RE = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 
 /** הרצת קובץ ההתקנה בלי לקשור אותו לתהליך הסוכן (ההתקנה עוצרת את הסוכן ואת כל התהליכים שהוא הפעיל). */
 export function launchInstaller(exe: string, logFile: string): void {
+  if (process.platform === 'linux') { launchLinuxUpdate(exe, logFile); return; }
   const line = `/d /s /c "start "" "${exe}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="${logFile}""`;
   spawn(process.env.ComSpec || 'cmd.exe', [line], { windowsVerbatimArguments: true, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+}
+
+/**
+ * לינוקס: install.sh שבתיקיית ההתקנה פורס את הקובץ שהורד (ההגדרות והנתונים נשמרים) ומפעיל את השירות מחדש.
+ * רץ מחוץ לשירות (systemd-run), כי עצירת השירות הורגת את כל התהליכים שבתוכו, כולל את מי שמעדכן.
+ */
+export function launchLinuxUpdate(tarball: string, logFile: string, appDir = join(AGENT_ROOT, '..')): void {
+  const script = join(appDir, 'install.sh');
+  const args = ['--from-file', tarball, '--quiet', '--log', logFile];
+  const hasSystemdRun = (process.env.PATH ?? '').split(':').some(d => d && existsSync(join(d, 'systemd-run')));
+  const c = hasSystemdRun && process.env.CLAUDEPHONE_SERVICE === '1'
+    ? spawn('systemd-run', ['--user', '--collect', '--quiet', `--unit=claudephone-update-${Date.now()}`, '/bin/bash', script, ...args], { detached: true, stdio: 'ignore' })
+    : spawn('setsid', ['/bin/bash', script, ...args], { detached: true, stdio: 'ignore' });
+  c.on('error', e => logError('update', e, 'launch'));
+  c.unref();
 }
 
 export class Updater {
@@ -115,8 +144,9 @@ export class Updater {
       if (!r.ok) throw new Error(`GitHub החזיר שגיאה ${r.status}`);
       const j: any = await r.json();
       const assets: any[] = Array.isArray(j.assets) ? j.assets : [];
-      const exe = assets.find(a => ASSET.test(String(a.name)));
-      const version = exe ? String(exe.name).match(ASSET)![1] : (parseVersion(j.tag_name) ? String(j.tag_name).replace(/^v/i, '') : null);
+      const pat = assetPattern(this.o.platform, this.o.arch);
+      const exe = assets.find(a => pat.test(String(a.name)));
+      const version = exe ? String(exe.name).match(pat)![1] : (parseVersion(j.tag_name) ? String(j.tag_name).replace(/^v/i, '') : null);
       s.latest = version;
       s.notes = typeof j.body === 'string' ? j.body.slice(0, 4000) : null;
       s.publishedAt = j.published_at ?? null;
