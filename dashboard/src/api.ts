@@ -98,7 +98,9 @@ export interface PhoneLogEntry { callId: string; phone: string; at: string; kind
 
 /** חיבורי MCP: מה קיים במחשב (סריקה) ומה פתוח למשימות מהטלפון. */
 export interface McpServer { slug: string; name: string; status: string; source: 'claude.ai' | 'plugin' | 'local'; tools: string[]; error?: string }
-export interface McpState { enabled: string[]; scan: { at: string; claudeCodeVersion: string | null; servers: McpServer[] } | null; scanning: boolean }
+export interface ChromeBrowser { deviceId: string; name: string; osPlatform?: string; isLocal?: boolean }
+export interface ChromeState { enabled: boolean; browser: string; browsers: ChromeBrowser[]; browsersAt: string | null; listing: boolean }
+export interface McpState { enabled: string[]; scan: { at: string; claudeCodeVersion: string | null; servers: McpServer[] } | null; scanning: boolean; chrome?: ChromeState }
 
 /** פעולה מהלוח (שלב 4): POST עם כותרת ההגנה. זורק שגיאה עם ההודעה מהסוכן. */
 export async function act<T = any>(path: string, body: unknown = {}): Promise<T> {

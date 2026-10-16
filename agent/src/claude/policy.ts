@@ -9,9 +9,10 @@ import { resolve, relative, isAbsolute, dirname, sep } from 'node:path';
 import type { ProjectPermissions } from '@claude-phone/shared';
 import type { EditMode } from '../store/db.ts';
 import { parseMcpTool, isReadOnlyMcpTool, speakableMcp } from './mcp.ts';
+import { CHROME_SLUG, decideChrome, speakableChrome, type ChromePolicy } from './chrome.ts';
 
 /** חיבורי MCP שפתוחים למשימות מהטלפון: מזהי שרתים (slug) ושם להקראה. */
-export interface McpPolicy { enabled: string[]; labels?: Record<string, string> }
+export interface McpPolicy { enabled: string[]; labels?: Record<string, string>; /** Claude in Chrome פתוח למשימות: איזה דפדפן לבחור */ chrome?: ChromePolicy }
 
 export const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 export const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
@@ -33,6 +34,7 @@ export function decide(toolName: string, input: Record<string, unknown>, project
   const mt = parseMcpTool(toolName);
   if (mt) {
     if (!mcp?.enabled.includes(mt.slug)) return { action: 'deny', reason: 'החיבור הזה לא הופעל למשימות מהטלפון (לוח הבקרה, הגדרות)', summary };
+    if (mt.slug === CHROME_SLUG) return { ...decideChrome(mt.tool, input, editMode, mcp.chrome), summary };
     if (isReadOnlyMcpTool(mt.tool)) return { action: 'allow', reason: 'קריאה מחיבור שהופעל', summary };
     if (editMode === 'auto') return { action: 'allow', reason: 'אישור אוטומטי (נקבע בטלפון)', summary };
     if (editMode === 'readonly') return { action: 'deny', reason: 'המערכת במצב קריאה בלבד (נקבע בטלפון)', summary };
@@ -55,6 +57,7 @@ export function decide(toolName: string, input: Record<string, unknown>, project
 /** תיאור הבקשה כפי שיוקרא בטלפון. פקודה מוקראת במלואה, כדי שהאישור יהיה על מה שירוץ בפועל. */
 export function speakableSummary(toolName: string, input: Record<string, unknown>, mcpLabels?: Record<string, string>): string {
   const mt = parseMcpTool(toolName);
+  if (mt?.slug === CHROME_SLUG) return speakableChrome(mt.tool, input);
   if (mt) return speakableMcp(mt.slug, mt.tool, input, mcpLabels?.[mt.slug]);
   if (toolName === QUESTION_TOOL) {
     const qs = (input.questions as any[]) ?? [];

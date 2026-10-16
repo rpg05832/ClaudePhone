@@ -1,6 +1,7 @@
 // הרצת Claude Code דרך Agent SDK (הוחלט בשלב 0): שיחה חדשה או המשך לפי מזהה, עם canUseTool ועצירה.
 import type { Project } from '@claude-phone/shared';
 import { decide, type McpPolicy } from './policy.ts';
+import { chromeAppend } from './chrome.ts';
 import type { EditMode } from '../store/db.ts';
 import { log } from '../log.ts';
 
@@ -90,7 +91,9 @@ export async function runClaude(query: QueryFn, i: RunInput): Promise<RunResult>
       if (d.action === 'allow') return {};   // ההחלטה הרגילה (canUseTool) עדיין נשאלת אם אין כלל שמאשר
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.action, permissionDecisionReason: d.reason } };
     }] }] } } : {}),
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: PHONE_APPEND + (i.editMode === 'readonly' ? '\n' + READONLY_APPEND : i.editMode === 'auto' ? '\n' + AUTO_APPEND : '') + (mcpOpen ? '\n' + mcpAppend(i.mcp!) : '') },
+    // Claude in Chrome נטען רק עם --chrome; כשלא נבחר, --no-chrome גם אם המשתמש הפעיל אותו כברירת מחדל ב-Claude Code
+    ...(mcpOpen ? { extraArgs: i.mcp!.chrome ? { chrome: null } : { 'no-chrome': null } } : {}),
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: PHONE_APPEND + (i.editMode === 'readonly' ? '\n' + READONLY_APPEND : i.editMode === 'auto' ? '\n' + AUTO_APPEND : '') + (mcpOpen ? '\n' + mcpAppend(i.mcp!) : '') + (mcpOpen && i.mcp!.chrome ? '\n' + chromeAppend(i.mcp!.chrome) : '') },
     abortController: i.abort,
     canUseTool: async (toolName: string, input: Record<string, unknown>, opts: { signal: AbortSignal }) => {
       const d = decide(toolName, input, i.editRoots ?? i.project.path, i.project.permissions, i.editMode, i.mcp);

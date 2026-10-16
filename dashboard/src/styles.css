@@ -389,3 +389,8 @@ kbd { display: inline-block; min-width: 1.7em; padding: 0 6px; font: 600 13px/1.
   .help-ways { grid-template-columns: 1fr; } .help-ways > div + div { border-inline-start: 0; border-top: 1px solid var(--rule); }
   .foot { padding-inline: 16px; }
 }
+
+.mcp .chrome-pick { margin: 4px 0 14px; padding-inline-start: 26px; }
+.mcp .chrome-pick label { display: block; font-weight: 600; margin-bottom: 6px; }
+.mcp .chrome-pick .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mcp .chrome-pick select { min-width: 220px; max-width: 100%; }

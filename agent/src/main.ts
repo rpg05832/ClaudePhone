@@ -25,6 +25,7 @@ import { ConversationIndex } from './history/conversations.ts';
 import { CoworkHistory } from './history/cowork.ts';
 import { splitSummary, cleanForSpeech } from './claude/runner.ts';
 import { discoverMcp, serverLabel } from './claude/mcp.ts';
+import { CHROME_SLUG, CHROME_LABEL, chromePolicy, listChromeBrowsers } from './claude/chrome.ts';
 import { startDashboard, loadOrCreateToken } from './web/server.ts';
 import { DashboardActions } from './web/actions.ts';
 import { openDashboardWindow, desktopShortcutScript, startupScript } from './web/open.ts';
@@ -211,10 +212,13 @@ function openFolderWindow(path: string): void {
 const { query } = await import('@anthropic-ai/claude-agent-sdk');
 /** חיבורי MCP שפתוחים לטלפון, עם שמות להקראה ורשימת כל השרתים המוכרים (להסתרת השאר). */
 function mcpPolicy() {
-  if (!cfg.mcp.enabled.length) return undefined;
+  const chromeOn = !!cfg.mcp.chrome?.enabled;
+  if (!cfg.mcp.enabled.length && !chromeOn) return undefined;
   const known = cfg.mcp.scan?.servers ?? [];
-  const labels = Object.fromEntries(known.map(s => [s.slug, serverLabel(s.name)]));
-  return { enabled: cfg.mcp.enabled, labels, known: known.map(s => s.slug) };
+  const labels: Record<string, string> = Object.fromEntries(known.map(s => [s.slug, serverLabel(s.name)]));
+  const enabled = cfg.mcp.enabled.filter(s => s !== CHROME_SLUG);
+  if (chromeOn) { enabled.push(CHROME_SLUG); labels[CHROME_SLUG] = CHROME_LABEL; }
+  return { enabled, labels, known: known.map(s => s.slug).filter(s => s !== CHROME_SLUG), ...(chromeOn ? { chrome: chromePolicy(cfg.mcp.chrome) } : {}) };
 }
 const worker = new Worker({
   store, tasks, query: query as any, maxTurns: cfg.claude.maxTurns, model: cfg.claude.model, permissionMinutes: cfg.limits.permissionMinutes,
@@ -309,6 +313,7 @@ const dash = startDashboard({
     openTerminal: (id, cwd) => openResumeTerminal(id, cwd),
     openFolder: (p) => openFolderWindow(p),
     scanMcp: () => discoverMcp(query as any, cfg.projects.newProjectsParent && existsSync(cfg.projects.newProjectsParent) ? cfg.projects.newProjectsParent : AGENT_ROOT),
+    listChrome: () => listChromeBrowsers(query as any, cfg.projects.newProjectsParent && existsSync(cfg.projects.newProjectsParent) ? cfg.projects.newProjectsParent : AGENT_ROOT),
     updater, location,
     ensureProject: (folder) => ensureProjectForFolder(folder),
     createProject: (name) => createProjectFromPhone(store, cfg.projects.newProjectsParent, name, cfg.projects.initGit),

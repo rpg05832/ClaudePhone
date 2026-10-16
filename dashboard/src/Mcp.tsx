@@ -1,6 +1,6 @@
 // חיבורי MCP למשימות מהטלפון (לבקשת המשתמש, 16.10): רשימת כל החיבורים שקיימים במחשב, ומתג לכל אחד.
 import { useEffect, useRef, useState } from 'react';
-import { act, useApi, type McpState, type McpServer } from './api';
+import { act, useApi, type McpState, type McpServer, type ChromeState } from './api';
 import { when, full } from './format';
 
 const SOURCE: Record<McpServer['source'], string> = { 'claude.ai': 'מחבר של claude.ai', local: 'שרת MCP של Claude Code במחשב', plugin: 'תוסף' };
@@ -48,6 +48,22 @@ export default function McpConnections() {
       .catch((e: any) => { setErr(e.message); if (pending.current === 1) s.reload(); })
       .finally(() => { pending.current--; });
   };
+  const chromeSet = async (patch: { enabled?: boolean; browser?: string }) => {
+    setErr(null);
+    setView(v => (v && v.chrome ? { ...v, chrome: { ...v.chrome, ...patch } } : v));
+    try {
+      const r = await act<McpState>('/mcp/chrome', patch);
+      setView(v => (v ? { ...v, chrome: r.chrome } : r));
+      // בהפעלה הראשונה: מביאים את רשימת הדפדפנים כדי שאפשר יהיה לבחור
+      if (patch.enabled && r.chrome && !r.chrome.browsersAt) void chromeList();
+    } catch (e: any) { setErr(e.message); s.reload(); }
+  };
+  const chromeList = async () => {
+    setErr(null);
+    setView(v => (v && v.chrome ? { ...v, chrome: { ...v.chrome, listing: true } } : v));
+    try { const r = await act<McpState>('/mcp/chrome/browsers'); setView(v => (v ? { ...v, chrome: r.chrome } : r)); }
+    catch (e: any) { setErr(e.message); setView(v => (v && v.chrome ? { ...v, chrome: { ...v.chrome, listing: false } } : v)); }
+  };
   const servers = view?.scan?.servers ?? [];
   const enabled = new Set(view?.enabled ?? []);
   // שרת שנבחר בעבר ולא נמצא בסריקה האחרונה: מוצג כדי שאפשר יהיה לכבות אותו
@@ -63,6 +79,7 @@ export default function McpConnections() {
       </div>
       {err && <div className="error">{err}</div>}
       {view && !view.scan && <div className="hint">עוד לא נסרק. הסריקה מפעילה את Claude Code לרגע, בדיוק כמו פתיחת חלון טרמינל, וקוראת ממנו את רשימת החיבורים.</div>}
+      {view?.chrome && <ChromeSection c={view.chrome} set={chromeSet} list={chromeList} />}
       {groups.map(g => {
         const list = servers.filter(x => x.source === g);
         if (!list.length) return null;
@@ -102,6 +119,44 @@ export default function McpConnections() {
         <b>מה קורה במשימה מהטלפון:</b> פעולות קריאה דרך חיבור פתוח (חיפוש, קריאת מייל, רשימת אירועים) רצות בלי לשאול. פעולה שמשנה משהו (שליחת מייל, תשובה, מחיקה, יצירת אירוע) תלויה במצב העבודה: ב"שינויים, פקודות באישור" היא מוקראת לך לאישור בטלפון; ב"אישור אוטומטי" היא רצה לבד; ב"קריאה בלבד" היא נחסמת. חיבור שלא סומן כאן לא זמין ל-Claude במשימות מהטלפון, גם באישור אוטומטי. בטרמינל וב-VS Code החיבורים זמינים תמיד, כמו ב-Claude Code רגיל.
       </div>
       {view?.scan && <div className="hint">הסריקה האחרונה: {full(view.scan.at)}. אחרי שחיברת שירות חדש ב-claude.ai או הוספת שרת MCP, לחץ "סרוק שוב".</div>}
+    </div>
+  );
+}
+
+/** Claude in Chrome: הדפדפן הרגיל של המשתמש, עם החשבונות שהוא מחובר אליהם. מתג, ובחירת הדפדפן למשימות. */
+function ChromeSection({ c, set, list }: { c: ChromeState; set: (p: { enabled?: boolean; browser?: string }) => void; list: () => void }) {
+  const first = c.browsers[0]?.name;
+  const known = c.browser === 'first' || c.browser === 'ask' || c.browsers.some(b => b.deviceId === c.browser);
+  return (
+    <div>
+      <div className="label">הדפדפן שלך</div>
+      <ul className="mcp-list">
+        <li className={c.enabled ? 'on' : ''}>
+          <label className="check">
+            <input type="checkbox" checked={c.enabled} onChange={e => set({ enabled: e.target.checked })} />
+            <b>Claude in Chrome</b>
+          </label>
+          <span className="muted">Chrome הרגיל שלך, עם החשבונות השמורים</span>
+        </li>
+      </ul>
+      {c.enabled && <div className="chrome-pick">
+        <label htmlFor="chrome-browser">באיזה דפדפן לעבוד</label>
+        <div className="row">
+          <select id="chrome-browser" value={known ? c.browser : 'first'} onChange={e => set({ browser: e.target.value })}>
+            <option value="first">הראשון ברשימה{first ? ` (${first})` : ''}</option>
+            {c.browsers.map(b => <option key={b.deviceId} value={b.deviceId}>{b.name}{b.osPlatform ? ` · ${b.osPlatform}` : ''}</option>)}
+            <option value="ask">לשאול אותי בטלפון בכל משימה</option>
+          </select>
+          <button className="btn" onClick={list} disabled={c.listing}>{c.listing ? 'בודק… (עד חצי דקה)' : 'רענן רשימת דפדפנים'}</button>
+        </div>
+        {!known && <div className="error">הדפדפן שנבחר כבר לא מחובר. בחר דפדפן אחר.</div>}
+        <div className="hint">
+          {c.browsersAt ? `נמצאו ${c.browsers.length} דפדפנים מחוברים (נבדק ${when(c.browsersAt)}). ` : 'עוד לא נבדק אילו דפדפנים מחוברים. '}
+          כל פרופיל של Chrome שהתוסף מותקן בו מופיע כדפדפן נפרד. Claude פותח לשוניות חדשות בקבוצה משלו ולא נוגע בלשוניות שלך.
+          קריאה וניווט רצים לבד; לחיצה, הקלדה ומילוי טופס תלויים במצב העבודה, כמו בשאר החיבורים. Claude לא מקליד סיסמאות.
+          ב"לשאול אותי" תישמע בטלפון שאלה עם שמות הדפדפנים בתחילת כל משימה שמשתמשת בדפדפן.
+        </div>
+      </div>}
     </div>
   );
 }

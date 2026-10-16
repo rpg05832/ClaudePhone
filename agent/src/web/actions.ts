@@ -16,6 +16,7 @@ import { REPO_RE } from '../update/updater.ts';
 import type { ProjectsLocation } from '../projects-location.ts';
 import { pickFolder } from './open.ts';
 import type { McpScan } from '../claude/mcp.ts';
+import type { ChromeBrowser, ChromeSettings } from '../claude/chrome.ts';
 import { log } from '../log.ts';
 
 export interface ActionDeps {
@@ -50,6 +51,8 @@ export interface ActionDeps {
   pickFolder?: (initial: string | null, title: string) => Promise<string | null>;
   /** סריקת חיבורי ה-MCP שקיימים במחשב (הרצה קצרה של Claude Code). */
   scanMcp?: () => Promise<McpScan>;
+  /** רשימת הדפדפנים שמחוברים ל-Claude in Chrome (הרצה קצרה של Claude עם --chrome) */
+  listChrome?: () => Promise<ChromeBrowser[]>;
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -65,12 +68,14 @@ const DECIDE_MSG: Record<string, string> = {
 
 export class DashboardActions {
   private mcpScanning = false;
+  private chromeListing = false;
   constructor(private d: ActionDeps) {}
 
   /** מצב חיבורי ה-MCP לתצוגה בלוח: הסריקה האחרונה, ומה פתוח. */
-  mcpView(): { enabled: string[]; scan: McpScan | null; scanning: boolean } {
+  mcpView(): { enabled: string[]; scan: McpScan | null; scanning: boolean; chrome: ChromeSettings & { listing: boolean } } {
     const cfg = this.d.cfg;
-    return { enabled: cfg?.mcp.enabled ?? [], scan: cfg?.mcp.scan ?? null, scanning: this.mcpScanning };
+    const chrome = cfg?.mcp.chrome ?? { enabled: false, browser: 'first', browsers: [], browsersAt: null };
+    return { enabled: cfg?.mcp.enabled ?? [], scan: cfg?.mcp.scan ?? null, scanning: this.mcpScanning, chrome: { ...chrome, listing: this.chromeListing } };
   }
 
   async handle(path: string, body: any): Promise<Result> {
@@ -141,6 +146,39 @@ export class DashboardActions {
       saveUserConfig({ mcp: { enabled } }, this.d.root ?? AGENT_ROOT);
       log('web', `חיבורי MCP לטלפון: ${enabled.length ? (enabled as string[]).join(', ') : 'אין'}`);
       return ok(this.mcpView());
+    }
+
+    // Claude in Chrome: הפעלה ובחירת דפדפן ('first' = הראשון ברשימה, 'ask' = לשאול בטלפון, או מזהה דפדפן)
+    if (path === '/mcp/chrome') {
+      const cfg = this.d.cfg;
+      if (!cfg) return bad('לא זמין');
+      const cur = cfg.mcp.chrome;
+      const patch: Partial<ChromeSettings> = {};
+      if (typeof body?.enabled === 'boolean') patch.enabled = body.enabled;
+      if (body?.browser !== undefined) {
+        const b = String(body.browser);
+        if (b !== 'first' && b !== 'ask' && !/^[\w-]{1,80}$/.test(b)) return bad('בחירת דפדפן לא תקינה');
+        patch.browser = b;
+      }
+      cfg.mcp.chrome = { ...cur, ...patch };
+      saveUserConfig({ mcp: { chrome: patch } }, this.d.root ?? AGENT_ROOT);
+      log('web', `Claude in Chrome לטלפון: ${cfg.mcp.chrome.enabled ? 'פעיל' : 'כבוי'}, דפדפן: ${cfg.mcp.chrome.browser}`);
+      return ok(this.mcpView());
+    }
+    if (path === '/mcp/chrome/browsers') {
+      const cfg = this.d.cfg;
+      if (!cfg || !this.d.listChrome) return bad('לא זמין');
+      if (this.chromeListing) return bad('הבדיקה כבר רצה');
+      this.chromeListing = true;
+      try {
+        const browsers = await this.d.listChrome();
+        const browsersAt = new Date().toISOString();
+        cfg.mcp.chrome = { ...cfg.mcp.chrome, browsers, browsersAt };
+        saveUserConfig({ mcp: { chrome: { browsers, browsersAt } } }, this.d.root ?? AGENT_ROOT);
+        log('web', `דפדפנים ב-Claude in Chrome: ${browsers.map(b => b.name).join(', ') || 'אין'}`);
+        return ok(this.mcpView());
+      } catch (e) { return bad(`לא הצלחתי לקבל את רשימת הדפדפנים: ${e instanceof Error ? e.message : String(e)}`); }
+      finally { this.chromeListing = false; }
     }
 
     // פרויקט חדש (תיקייה חדשה בתיקיית הפרויקטים)
