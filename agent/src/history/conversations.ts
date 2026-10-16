@@ -65,6 +65,7 @@ export class ConversationIndex {
         createdAt: c.createdAt, lastActiveAt: maxIso(c.lastActiveAt, h?.lastActiveAt),
         active: locked, canContinue: !!p?.phoneEnabled, blockedReason: p?.phoneEnabled ? null : 'הפרויקט אינו זמין בטלפון',
         inHistory: !!h,
+        folder: h?.cwd ?? p?.path ?? null,
       });
     }
     for (const h of hist) {

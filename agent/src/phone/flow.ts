@@ -7,7 +7,8 @@ import type { Task, Project, Conversation, PermissionRequest } from '@claude-pho
 import type { DecideResult } from '../claude/broker.ts';
 import type { ConversationEntry } from '../history/conversations.ts';
 import { r, san, EMPTY_VALUE, type YemotResponse, type YemotQuery } from './response.ts';
-import { VOICES, MODELS, EFFORTS, type Store, type EditMode, type ModelChoice, type EffortChoice } from '../store/db.ts';
+import { VOICES, MODELS, EFFORTS, READBACKS, type Store, type EditMode, type ModelChoice, type EffortChoice, type ReadbackChoice } from '../store/db.ts';
+import { cleanForSpeech } from '../claude/runner.ts';
 
 const MODE_NAMES: Record<EditMode, string> = {
   readonly: 'כרגע קלוד במצב קריאה בלבד',
@@ -61,7 +62,7 @@ type Screen =
   | 'newProjMode' | 'newProjName' | 'newProjConfirm'
   | 'record' | 'transcribing' | 'confirmTranscript'
   | 'waiting'
-  | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort'
+  | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback'
   | 'results' | 'resultMenu'
   | 'activeList' | 'activeMenu' | 'stopConfirm'
   | 'approval' | 'approvalText' | 'explainRecorded' | 'explainTranscribing' | 'explainConfirm'
@@ -81,6 +82,7 @@ interface CallState {
   newProjName?: string;
   resultIds?: string[];         // תוצאות להשמעה בתפריט 4
   resultIdx?: number;
+  resultMode?: ReadbackChoice;  // מה מוקרא בשיחה הזו: התשובה המלאה או הסיכום (מקש 4 מחליף; מתחיל מההגדרה)
   activeIds?: string[];
   selectedTaskId?: string;
   waitStart?: number;
@@ -104,6 +106,8 @@ interface CallState {
 }
 
 const PAGE = 9;
+/** ברשימות שבהן מקש 1 הוא "חדש" (פרויקטים, שיחות): שמונה פריטים בעמוד, במקשים 2 עד 9. */
+const ITEMS = PAGE - 1;
 
 export class PhoneFlow {
   private calls = new Map<string, CallState>();
@@ -203,6 +207,7 @@ export class PhoneFlow {
       case 'settingsModel': return this.onSettingsModel(c, input);
       case 'taskModel': return this.onTaskModel(c, input);
       case 'settingsEffort': return this.onSettingsEffort(c, input);
+      case 'settingsReadback': return this.onSettingsReadback(c, input);
       case 'waiting': return this.onWaiting(c, input);
       case 'results': return this.onResults(c);
       case 'resultMenu': return this.onResultMenu(c, input);
@@ -345,25 +350,25 @@ export class PhoneFlow {
     c.screen = 'convList';
     const all = this.listedConversations(c);
     c.convIds = all.map(cv => cv.id);
-    const res = r();
-    if (prefix) res.say(prefix);
     if (!all.length) return this.mainMenu(c, c.convAll ? 'לא נמצאו שיחות במחשב' : 'אין עדיין שיחות קודמות. לפתיחת שיחה חדשה הקש 3 בתפריט');
-    const page = all.slice(c.page * PAGE, c.page * PAGE + PAGE);
+    const page = all.slice(c.page * ITEMS, c.page * ITEMS + ITEMS);
     if (!page.length) { c.page = 0; return this.convListScreen(c, 'אין עוד שיחות. חוזרים לעמוד הראשון'); }
-    const lines = page.map((cv, i) => {
+    // "שיחה חדשה" תמיד מקש 1 (לבקשת המשתמש, 16.10); השיחות ממקש 2
+    const lines = ['לשיחה חדשה הקש 1', ...page.map((cv, i) => {
       const from = cv.source === 'desktop' ? ' מדסקטופ' : cv.source === 'cli' ? ' מהטרמינל' : cv.source === 'vscode' ? ' מויזואל סטודיו' : cv.source === 'cowork' ? ' מקוורק' : '';
       const state = cv.active ? ' פעילה כרגע' : !cv.canContinue ? ' לא זמינה להמשך' : '';
-      return `${i + 1}. ${cv.projectName ?? 'פרויקט לא ידוע'}. ${cv.title}${from}. ${spokenAgo(cv.lastActiveAt)}${state}`;
-    });
-    const more = all.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
-    res.say(lines.join('. '));
-    return res.readDigits(`בחר שיחה${more}. לחזרה 0`, this.next(c), { timeout: 20, min: 0 });
+      return `${i + 2}. ${cv.projectName ?? 'פרויקט לא ידוע'}. ${cv.title}${from}. ${spokenAgo(cv.lastActiveAt)}${state}`;
+    })];
+    const more = all.length > (c.page + 1) * ITEMS ? '. לעמוד הבא הקש סולמית' : '';
+    // הכל בתוך read: הקשה באמצע ההקראה (גם באמצע "התשובה האחרונה" של שיחה שאי אפשר להמשיך) נקלטת מיד
+    return r().readAfter([...(prefix ? [prefix] : []), lines.join('. '), `בחר שיחה${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
   }
 
   private onConvList(c: CallState, input: string | undefined): YemotResponse {
     if (input === '0') return this.mainMenu(c);
     if (!input) { c.page += 1; return this.convListScreen(c); }
-    const id = c.convIds?.[c.page * PAGE + Number(input) - 1];
+    if (input === '1') { c.page = 0; return this.projListScreen(c); }
+    const id = c.convIds?.[c.page * ITEMS + Number(input) - 2];
     let conv = id ? this.listedConversations(c).find(cv => cv.id === id) : undefined;
     if (!conv) return this.convListScreen(c, 'בחירה לא תקינה');
     // שיחה מחוץ לפרויקטים: התיקייה שלה נרשמת אוטומטית, והשיחה ממשיכה במקום שבו היא נמצאת
@@ -390,27 +395,23 @@ export class PhoneFlow {
 
   // ===================== 3: שיחה חדשה או פרויקט חדש =====================
 
+  /** רשימת הפרויקטים: "פרויקט חדש" הוא תמיד מקש 1 (לבקשת המשתמש, 16.10), והפרויקטים ממקש 2, שמונה בכל עמוד. */
   private projListScreen(c: CallState, prefix = ''): YemotResponse {
     c.screen = 'projList';
     const projects = this.d.store.listMenuProjects();
-    const entries: string[] = projects.map(p => p.spokenName);
-    entries.push('פרויקט חדש');   // האפשרות האחרונה ברשימה (אפיון 3)
-    const page = entries.slice(c.page * PAGE, c.page * PAGE + PAGE);
-    if (!page.length) { c.page = 0; return this.projListScreen(c, 'אין עוד פרויקטים. חוזרים לעמוד הראשון'); }
-    const res = r();
-    if (prefix) res.say(prefix);
-    res.say(page.map((name, i) => `ל${name} הקש ${i + 1}`).join('. '));
-    const more = entries.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
-    return res.readDigits(`בחר${more}. לחזרה 0`, this.next(c), { timeout: 20, min: 0 });
+    const page = projects.slice(c.page * ITEMS, c.page * ITEMS + ITEMS);
+    if (!page.length && c.page > 0) { c.page = 0; return this.projListScreen(c, 'אין עוד פרויקטים. חוזרים לעמוד הראשון'); }
+    const lines = ['לפרויקט חדש הקש 1', ...page.map((p, i) => `ל${p.spokenName} הקש ${i + 2}`)];
+    const more = projects.length > (c.page + 1) * ITEMS ? '. לעמוד הבא הקש סולמית' : '';
+    return r().readAfter([...(prefix ? [prefix] : []), lines.join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
   }
 
   private onProjList(c: CallState, input: string | undefined): YemotResponse {
     if (input === '0') return this.mainMenu(c);
     if (!input) { c.page += 1; return this.projListScreen(c); }
+    if (input === '1') return this.newProjModeScreen(c);
     const projects = this.d.store.listMenuProjects();
-    const idx = c.page * PAGE + Number(input) - 1;
-    if (idx === projects.length) return this.newProjModeScreen(c);
-    const proj = projects[idx];
+    const proj = projects[c.page * ITEMS + Number(input) - 2];
     if (!proj) return this.projListScreen(c, 'בחירה לא תקינה');
     c.target = { kind: 'new', projectId: proj.id };
     return this.recordScreen(c, `שיחה חדשה בפרויקט ${proj.spokenName}.`);
@@ -588,25 +589,39 @@ export class PhoneFlow {
 
   private onResults(c: CallState): YemotResponse { return this.resultsScreen(c); }
 
+  /**
+   * השמעת תוצאה. כל הטקסט נכנס לתוך פקודת read (ולא id_list_message), כדי שהקשה באמצע ההקראה תיקלט מיד:
+   * גם תשובה ארוכה של כמה דקות אפשר לקטוע בכל רגע. מה מוקרא (התשובה המלאה או הסיכום) לפי ההגדרה, ומקש 4 מחליף.
+   */
   private playResult(c: CallState, t: Task, fromWaiting: boolean, prefix = ''): YemotResponse {
     c.screen = 'resultMenu';
     c.selectedTaskId = t.id;
     if (fromWaiting) { c.resultIds = [t.id]; c.resultIdx = 0; }
+    c.resultMode ??= this.d.store.getSettings().readback;
     const proj = this.d.store.getProject(t.projectId);
-    const res = r();
-    if (prefix) res.say(prefix);
-    res.say(`משימה ${t.num}. ${proj?.spokenName ?? ''}. ${resultSpeech(t)}`);
+    const full = c.resultMode === 'full';
     const hasNext = (c.resultIdx ?? 0) + 1 < (c.resultIds?.length ?? 0);
-    return res.readDigits(`לשמיעה חוזרת 1.${hasNext ? ' לתוצאה הבאה 2.' : ''} להמשך השיחה 3. לתפריט 0`, this.next(c), { timeout: 20 });
+    const texts = [
+      ...(prefix ? [prefix] : []),
+      `משימה ${t.num}. ${proj?.spokenName ?? ''}. ${full ? fullResultSpeech(t) : resultSpeech(t)}`,
+      `לשמיעה חוזרת 1.${hasNext ? ' לתוצאה הבאה 2.' : ''} להמשך השיחה 3. ${full ? 'לסיכום הקצר' : 'לתשובה המלאה'} 4. לתפריט 0`,
+    ];
+    return r().readAfter(texts, this.next(c), { timeout: 20, min: 0 });
   }
 
   private onResultMenu(c: CallState, input: string | undefined): YemotResponse {
     const id = c.selectedTaskId!;
     const t = this.d.tasks.get(id);
-    // הגיע לכאן אחרי ההשמעה ובחר משהו: התוצאה נשמעה (אפיון 3)
-    if (t && input !== undefined && input !== '') this.d.tasks.markHeard(id);
+    // הגיע לכאן אחרי ההשמעה ובחר משהו (או שההקראה הסתיימה ולא הוקש כלום): התוצאה נשמעה (אפיון 3)
+    if (t && input !== undefined) this.d.tasks.markHeard(id);
     if (!t) return this.mainMenu(c);
     if (input === '1') return this.playResult(c, t, false);
+    if (input === '4') {
+      c.resultMode = c.resultMode === 'full' ? 'summary' : 'full';
+      return this.playResult(c, t, false);
+    }
+    // ההקראה הסתיימה ולא הוקש כלום: לא חוזרים על הכל, אלא לתפריט
+    if (input === '' || input === EMPTY_VALUE) return this.mainMenu(c, 'לא התקבלה בחירה');
     if (input === '2') {
       const nextIdx = (c.resultIdx ?? 0) + 1;
       const nextId = c.resultIds?.[nextIdx];
@@ -623,7 +638,7 @@ export class PhoneFlow {
         return this.recordScreen(c, 'המשך השיחה.');
       }
     }
-    if (input === '' || input === undefined) return this.playResult(c, t, false, 'לא התקבלה בחירה');
+    if (input === undefined) return this.playResult(c, t, false);
     return this.mainMenu(c);
   }
 
@@ -817,11 +832,16 @@ export class PhoneFlow {
     res.say(MODE_NAMES[st.editMode]);
     const modelName = MODELS.find(m => m.id === st.model)?.spoken ?? '';
     const effortName = EFFORTS.find(m => m.id === st.effort)?.spoken ?? '';
-    res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}`);
-    return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. לחזרה 0`, this.next(c), { timeout: 20 });
+    const readbackName = READBACKS.find(m => m.id === st.readback)?.spoken ?? '';
+    res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}`);
+    return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. למה מוקרא בסיום משימה 7. לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
   private async onSettings(c: CallState, input: string | undefined): Promise<YemotResponse> {
+    if (input === '7') {
+      c.screen = 'settingsReadback';
+      return r().readDigits('להקראת התשובה המלאה של קלוד הקש 1. להקראת הסיכום הקצר בלבד 2. לחזרה 0', this.next(c), { timeout: 20 });
+    }
     if (input === '1') {
       c.screen = 'settingsMode';
       return r().readDigits('לקריאה בלבד 1. לשינויים עם אישור שלך לכל פקודה 2. לאישור אוטומטי של כל הפעולות 3. לחזרה 0', this.next(c), { timeout: 20 });
@@ -861,6 +881,15 @@ export class PhoneFlow {
     this.d.store.setSetting('model', m.id as ModelChoice);
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_model', detail: m.id });
     return this.settingsScreen(c, `נבחר ${m.spoken} לכל המשימות`);
+  }
+
+  private onSettingsReadback(c: CallState, input: string | undefined): YemotResponse {
+    const m = READBACKS[Number(input) - 1];
+    if (!m) return this.settingsScreen(c);
+    this.d.store.setSetting('readback', m.id);
+    c.resultMode = m.id;
+    this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_readback', detail: m.id });
+    return this.settingsScreen(c, m.id === 'full' ? 'מעכשיו בסיום משימה מוקראת התשובה המלאה. אפשר להקיש מקש בכל רגע כדי לקטוע' : 'מעכשיו בסיום משימה מוקרא הסיכום הקצר. בתפריט התוצאות מקש 4 משמיע את התשובה המלאה');
   }
 
   private onSettingsEffort(c: CallState, input: string | undefined): YemotResponse {
@@ -957,9 +986,10 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
   ] },
   { title: 'התפריט הראשי', lines: [
     'מקש 1 שולח הודעה לשיחת קלוד קוד שפתוחה עכשיו בחלון טרמינל במחשב עם חיבור לטלפון והוא מופיע רק כשיש שיחה כזו',
-    'מקש 2 ממשיך שיחה קודמת',
-    'מקש 3 פותח שיחה חדשה בפרויקט ובסוף הרשימה אפשר לפתוח פרויקט חדש',
-    'מקש 4 משמיע את התוצאות של משימות שהסתיימו',
+    'מקש 2 ממשיך שיחה קודמת ובראש הרשימה מקש 1 פותח שיחה חדשה',
+    'מקש 3 פותח שיחה חדשה בפרויקט ובראש רשימת הפרויקטים מקש 1 פותח פרויקט חדש',
+    'מקש 4 משמיע את התוצאות של משימות שהסתיימו ואפשר להקיש מקש באמצע ההקראה כדי לקטוע אותה',
+    'בתוך תוצאה מקש 1 משמיע שוב מקש 3 ממשיך את השיחה בהקלטה ומקש 4 מחליף בין התשובה המלאה לסיכום הקצר',
     'מקש 5 מציג משימות שרצות עכשיו ומשם מקש 9 מבקש לעצור משימה',
     'מקש 6 מופיע רק כשיש בקשות אישור או שאלות שממתינות לך',
     'מקש 7 להגדרות. מקש 8 מקריא את כל השיחות במחשב גם מחוץ לפרויקטים. מקש 9 להסבר הזה',
@@ -986,7 +1016,7 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
   { title: 'פרויקטים', lines: [
     'פרויקט הוא תיקייה במחשב שקלוד עובד בתוכה',
     'בטלפון מופיעים רק פרויקטים שסומנו זמין בטלפון בלוח הבקרה',
-    'פרויקט חדש פותחים במקש 3 באפשרות האחרונה ברשימה באמירת השם או בהקלדה שלו',
+    'פרויקט חדש פותחים במקש 3 ואז מקש 1 באמירת השם או בהקלדה שלו',
     'הפרויקט נוצר כתיקייה חדשה בתיקיית הפרויקטים ושיחה חדשה נפתחת בו מיד',
     'את המיקום של תיקיית הפרויקטים בוחרים בלוח הבקרה בלשונית פרויקטים ושם אפשר גם להעביר אותה למקום אחר',
     'תיקייה שכבר קיימת במחשב מוסיפים באשף ההגדרה במחשב',
@@ -1005,6 +1035,7 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
     'מקש 4 מפעיל או מכבה את הצינתוקים ובלילה בשבת ובחג הצינתוקים נדחים לסוף זמן השקט',
     'מקש 5 בוחר מודל פייבל הוא החזק ביותר אופוס חזק מאוד סונט מאוזן והייקו מהיר וחסכוני',
     'מקש 6 בוחר רמת חשיבה ורמה גבוהה יותר יסודית יותר אבל איטית יותר',
+    'מקש 7 קובע מה מוקרא בסיום משימה התשובה המלאה של קלוד או רק הסיכום הקצר שבראשה',
   ] },
 ];
 
@@ -1027,11 +1058,19 @@ export function stateSpeech(t: Task): string {
   }
 }
 
+/** הסיכום הקצר (מה שבראש התשובה, לפני קו ה---). */
 export function resultSpeech(t: Task): string {
   if (t.state === 'done') return t.resultSummary || t.resultText || 'הסתיימה בלי תשובה בטקסט';
   if (t.state === 'failed') return `נכשלה. ${t.error ?? ''}`;
   if (t.state === 'needs_review') return 'דורשת בדיקה במחשב. ייתכן שחלק מהשינויים כבר בוצעו';
   return stateSpeech(t);
+}
+
+/** התשובה המלאה של Claude להקראה: הסיכום וגם הפירוט, בלי Markdown; קוד מוחלף בהפניה ללוח. */
+export function fullResultSpeech(t: Task): string {
+  if (t.state !== 'done') return resultSpeech(t);
+  const full = t.resultText ? cleanForSpeech(t.resultText) : '';
+  return full || resultSpeech(t);
 }
 
 export function spokenAgo(iso: string, now = Date.now()): string {

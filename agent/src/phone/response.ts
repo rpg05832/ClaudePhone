@@ -44,6 +44,19 @@ export class YemotResponse {
     return this;
   }
 
+  /**
+   * הקראה ארוכה שאפשר לקטוע בהקשה: הטקסט כולו נכנס לתוך פקודת read (כמה מקטעי t- ברצף, כמו ב-id_list_message,
+   * ראה https://f2.freeivr.co.il/post/78283), ולכן הקשה באמצע ההקראה נקלטת מיד במקום לחכות לסוף.
+   * המקטע האחרון הוא תפריט המקשים. min=0: אם לא הוקש כלום עד תום ההמתנה מגיע EMPTY_VALUE, ולא הקראה חוזרת של הכל.
+   */
+  readAfter(texts: string[], name: string, opts: { max?: number; min?: number; timeout?: number } = {}): this {
+    const { max = 1, min = 1, timeout = 15 } = opts;
+    const allowEmpty = min === 0 ? `Ok,${EMPTY_VALUE}` : ',';
+    const msgs = texts.map(t => tts(t)).filter(Boolean).join('.t-') || ' ';
+    this.parts.push(`read=t-${msgs}=${name},no,${max},${Math.max(min, 1)},${timeout},NO,no,no,,,,${allowEmpty},,no`);
+    return this;
+  }
+
   /** הקלדה במקלדת העברית של הטלפון (סיום ב-#). */
   readText(prompt: string, name: string, opts: { max?: number; timeout?: number } = {}): this {
     const { max = 30, timeout = 90 } = opts;

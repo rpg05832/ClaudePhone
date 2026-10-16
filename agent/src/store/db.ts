@@ -32,7 +32,15 @@ export interface AgentSettings {
   model: ModelChoice;
   /** רמת החשיבה: default = לפי Claude Code */
   effort: EffortChoice;
+  /** מה מוקרא בטלפון כשמשימה מסתיימת: התשובה המלאה של Claude, או רק הסיכום הקצר שבראשה */
+  readback: ReadbackChoice;
 }
+
+export type ReadbackChoice = 'full' | 'summary';
+export const READBACKS: { id: ReadbackChoice; name: string; spoken: string }[] = [
+  { id: 'full', name: 'התשובה המלאה', spoken: 'התשובה המלאה' },
+  { id: 'summary', name: 'הסיכום הקצר בלבד', spoken: 'הסיכום הקצר בלבד' },
+];
 
 export type EffortChoice = 'default' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const EFFORTS: { id: EffortChoice; name: string; spoken: string }[] = [
@@ -53,7 +61,7 @@ export const MODELS: { id: ModelChoice; name: string; spoken: string }[] = [
   { id: 'haiku', name: 'Haiku (מהיר וחסכוני)', spoken: 'הייקו' },
 ];
 
-export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default' };
+export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default', readback: 'full' };
 
 export const DEFAULT_PERMISSIONS: ProjectPermissions = { editInsideProject: true, runCommands: false };
 
@@ -89,6 +97,7 @@ export class Store {
       notify: m.notify === 'off' ? 'off' : 'on',
       model: MODELS.some(x => x.id === m.model) ? m.model : 'default',
       effort: EFFORTS.some(x => x.id === m.effort) ? m.effort : 'default',
+      readback: m.readback === 'summary' ? 'summary' : 'full',
     };
   }
 

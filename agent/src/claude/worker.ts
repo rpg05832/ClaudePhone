@@ -21,6 +21,8 @@ export interface WorkerDeps {
     cancel: (sessionId: string, chatId: string) => void;
   };
   coworkRun?: (conversationId: string) => { session: { cwd: string; folders: string[] }; link: () => () => void; active: boolean; done: () => void } | null;
+  /** חיבורי MCP שפתוחים למשימות מהטלפון (נקרא בתחילת כל משימה, כדי ששינוי בלוח יחול מיד). */
+  mcp?: () => { enabled: string[]; labels?: Record<string, string>; known?: string[] } | undefined;
 }
 
 export class Worker {
@@ -144,6 +146,7 @@ export class Worker {
       const res = await runClaude(this.d.query, {
         project, prompt: task.prompt, resumeId: task.conversationId, maxTurns: this.d.maxTurns, model: modelFor(task, this.d.store.getSettings().model, this.d.model), effort: effortFor(this.d.store.getSettings().effort), abort,
         editMode: this.d.store.getSettings().editMode,
+        mcp: this.d.mcp?.(),
         ...(cw ? {
           cwd: cw.session.cwd,
           additionalDirectories: [project.path, ...cw.session.folders.filter(f => f.toLowerCase() !== project.path.toLowerCase())],

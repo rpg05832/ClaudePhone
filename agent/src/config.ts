@@ -12,6 +12,8 @@ export interface Config {
   notifications: { mode: 'tzintuk' | 'call' | 'none' };
   stt: { engine: 'faster-whisper' | 'yemot'; model: string; python: string; script: string; timeoutSeconds: number };
   claude: { strictMcp: boolean; permissionMode: 'default'; maxTurns: number; model?: string };
+  /** חיבורי MCP למשימות מהטלפון: אילו שרתים פתוחים (לפי slug), והסריקה האחרונה של מה שקיים במחשב. */
+  mcp: { enabled: string[]; scan: { at: string; claudeCodeVersion: string | null; servers: { slug: string; name: string; status: string; source: 'claude.ai' | 'plugin' | 'local'; tools: string[] }[] } | null };
   dashboard: { port: number; tokenFile: string; staticDir: string };
   retention: { recordingsDays: number };
   history: { resumeSources: ('sdk' | 'desktop' | 'cli' | 'vscode' | 'unknown' | 'cowork')[]; activeMinutes: number };

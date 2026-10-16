@@ -7,6 +7,7 @@
   "notifications": { "mode": "tzintuk" },
   "stt": { "engine": "faster-whisper", "model": "ivrit-ai/whisper-large-v3-turbo-ct2", "python": "python", "script": "stt/transcribe.py", "timeoutSeconds": 180 },
   "claude": { "strictMcp": true, "permissionMode": "default", "maxTurns": 40 },
+  "mcp": { "enabled": [], "scan": null },
   "dashboard": { "port": 7788, "tokenFile": "data/dashboard.token", "staticDir": "web" },
   "retention": { "recordingsDays": 7 },
   "history": { "resumeSources": ["sdk", "desktop", "cli", "vscode", "cowork"], "activeMinutes": 3 },

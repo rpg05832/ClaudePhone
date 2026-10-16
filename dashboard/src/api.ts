@@ -58,6 +58,8 @@ export interface Conversation {
   source: 'phone' | 'desktop' | 'cli' | 'vscode' | 'sdk' | 'cowork' | 'unknown'; createdAt: string | null; lastActiveAt: string;
   coworkProject?: string | null; archived?: boolean;
   active: boolean; canContinue: boolean; blockedReason: string | null; inHistory: boolean;
+  /** התיקייה שבה השיחה רצה במחשב (לכפתורי "פתח בטרמינל" ו"פתח תיקייה"). */
+  folder?: string | null;
 }
 
 export interface HistoryMessage { role: 'user' | 'assistant' | 'tool'; at: string | null; text: string; tool?: { name: string; input: string } }
@@ -75,7 +77,7 @@ export interface Project {
 export interface Overview {
   mode?: 'setup' | 'running';
   health: Record<string, any>;
-  settings: { editMode: 'readonly' | 'edit' | 'auto'; voice: string; rate: number; notify: 'on' | 'off'; model: string; effort: string };
+  settings: { editMode: 'readonly' | 'edit' | 'auto'; voice: string; rate: number; notify: 'on' | 'off'; model: string; effort: string; readback?: 'full' | 'summary' };
   update?: UpdateState | null;
   counts: { pending: number; active: number; unheard: number };
 }

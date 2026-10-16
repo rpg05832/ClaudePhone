@@ -151,6 +151,7 @@ export function startDashboard(d: DashboardDeps): http.Server {
     if (p === '/live') return json(res, 200, d.live?.list() ?? []);
     if (p === '/projects-location') return json(res, 200, d.location?.() ?? null);
     if (p === '/quiet-config') return json(res, 200, d.quietConfig?.() ?? null);
+    if (p === '/mcp') return json(res, 200, d.actions?.mcpView() ?? { enabled: [], scan: null, scanning: false });
     if (p === '/projects') {
       const convs = d.conversations.all();
       return json(res, 200, d.store.listProjects().map(pr => ({

@@ -8,6 +8,10 @@ import { realpathSync, existsSync } from 'node:fs';
 import { resolve, relative, isAbsolute, dirname, sep } from 'node:path';
 import type { ProjectPermissions } from '@claude-phone/shared';
 import type { EditMode } from '../store/db.ts';
+import { parseMcpTool, isReadOnlyMcpTool, speakableMcp } from './mcp.ts';
+
+/** חיבורי MCP שפתוחים למשימות מהטלפון: מזהי שרתים (slug) ושם להקראה. */
+export interface McpPolicy { enabled: string[]; labels?: Record<string, string> }
 
 export const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 export const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
@@ -15,10 +19,19 @@ export const QUESTION_TOOL = 'AskUserQuestion';
 
 export interface PolicyDecision { action: 'allow' | 'deny' | 'ask'; reason: string; summary: string; }
 
-export function decide(toolName: string, input: Record<string, unknown>, projectPath: string | string[], perms: ProjectPermissions, editMode: EditMode = 'edit'): PolicyDecision {
+export function decide(toolName: string, input: Record<string, unknown>, projectPath: string | string[], perms: ProjectPermissions, editMode: EditMode = 'edit', mcp?: McpPolicy): PolicyDecision {
   const roots = Array.isArray(projectPath) ? projectPath : [projectPath];
-  const summary = speakableSummary(toolName, input);
+  const summary = speakableSummary(toolName, input, mcp?.labels);
   if (toolName === QUESTION_TOOL) return { action: 'ask', reason: 'שאלה למשתמש', summary };
+  // חיבורי MCP: רק שרת שהמשתמש פתח לטלפון; קריאה לבד, שינוי לפי מצב העבודה. שרת שלא נפתח נדחה גם באישור אוטומטי.
+  const mt = parseMcpTool(toolName);
+  if (mt) {
+    if (!mcp?.enabled.includes(mt.slug)) return { action: 'deny', reason: 'החיבור הזה לא הופעל למשימות מהטלפון (לוח הבקרה, הגדרות)', summary };
+    if (isReadOnlyMcpTool(mt.tool)) return { action: 'allow', reason: 'קריאה מחיבור שהופעל', summary };
+    if (editMode === 'auto') return { action: 'allow', reason: 'אישור אוטומטי (נקבע בטלפון)', summary };
+    if (editMode === 'readonly') return { action: 'deny', reason: 'המערכת במצב קריאה בלבד (נקבע בטלפון)', summary };
+    return { action: 'ask', reason: 'פעולה שמשנה דרך חיבור: נדרש אישור בטלפון', summary };
+  }
   // מצב אישור אוטומטי (בחירת המשתמש בטלפון): כל פעולה מאושרת ונרשמת ביומן. שאלות עדיין נשאלות.
   if (editMode === 'auto') return { action: 'allow', reason: 'אישור אוטומטי (נקבע בטלפון)', summary };
   if (EDIT_TOOLS.has(toolName)) {
@@ -34,7 +47,9 @@ export function decide(toolName: string, input: Record<string, unknown>, project
 }
 
 /** תיאור הבקשה כפי שיוקרא בטלפון. פקודה מוקראת במלואה, כדי שהאישור יהיה על מה שירוץ בפועל. */
-export function speakableSummary(toolName: string, input: Record<string, unknown>): string {
+export function speakableSummary(toolName: string, input: Record<string, unknown>, mcpLabels?: Record<string, string>): string {
+  const mt = parseMcpTool(toolName);
+  if (mt) return speakableMcp(mt.slug, mt.tool, input, mcpLabels?.[mt.slug]);
   if (toolName === QUESTION_TOOL) {
     const qs = (input.questions as any[]) ?? [];
     return qs.map(q => String(q.question ?? '')).join(' ');

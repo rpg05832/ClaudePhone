@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import { log } from '../log.ts';
+import { normalizeSpelled } from './normalize.ts';
 
 export interface Transcriber { transcribe(path: string): Promise<string>; stop(): void; }
 
@@ -37,7 +38,14 @@ export class WhisperTranscriber implements Transcriber {
         if (!p) return;
         clearTimeout(p.timer); this.pending.delete(msg.id);
         if (msg.error) p.reject(new Error(msg.error));
-        else { log('stt', `תומלל: ${msg.duration} שניות אודיו ב-${msg.seconds} שניות`); p.resolve(msg.text || ''); }
+        else {
+          const raw = String(msg.text || '');
+          const text = normalizeSpelled(raw);
+          log('stt', `תומלל: ${msg.duration} שניות אודיו ב-${msg.seconds} שניות`);
+          // איותים (מייל, קוד) מומרים לכתיב; המקור נשמר ביומן כדי לכוון את הכללים
+          if (text !== raw) log('stt', `איות זוהה. מקור: "${raw}" | מנורמל: "${text}"`);
+          p.resolve(text);
+        }
       });
       child.stderr?.on('data', d => { const s = d.toString().trim(); if (s && !/UserWarning|warn/i.test(s)) log('stt', 'stderr:', s.slice(0, 300)); });
       child.on('error', e => { if (!gotReady) reject(e); });

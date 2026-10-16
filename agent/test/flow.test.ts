@@ -75,8 +75,8 @@ test('שיחה חדשה מקצה לקצה: PIN, פרויקט, הקלטה, תמל
   const c = call(flow);
   assert.match(await c.send(), /הקוד האישי/);
   assert.match(await c.send(PIN), /להמשך שיחה 2/);
-  assert.match(await c.send('3'), /לאתר הקש 1.*לפרויקט חדש הקש 2/);
-  assert.match(await c.send('1'), /record,\/9,cp-/);
+  assert.match(await c.send('3'), /לפרויקט חדש הקש 1.*לאתר הקש 2/);
+  assert.match(await c.send('2'), /record,\/9,cp-/);
   assert.match(await c.send('/9/x.wav'), /go_to_folder=\/9/);
   const confirm = await c.send();
   assert.match(confirm, /תוסיף כפתור יצירת קשר/);
@@ -97,7 +97,7 @@ test('שיחה חדשה מקצה לקצה: PIN, פרויקט, הקלטה, תמל
 test('ניתוק לפני אישור התמלול מבטל את הטיוטה', async () => {
   const { flow, tasks } = setup();
   const c = call(flow);
-  await c.send(); await c.send(PIN); await c.send('3'); await c.send('1'); await c.send('/9/x.wav'); await c.send();
+  await c.send(); await c.send(PIN); await c.send('3'); await c.send('2'); await c.send('/9/x.wav'); await c.send();
   await c.hangup();
   const t = tasks.getByNum(1)!;
   assert.equal(t.state, 'cancelled');
@@ -106,7 +106,7 @@ test('ניתוק לפני אישור התמלול מבטל את הטיוטה', a
 test('הקלטה מחדש (2) לא יוצרת משימה נוספת; ביטול (3) מבטל', async () => {
   const { flow, tasks } = setup();
   const c = call(flow);
-  await c.send(); await c.send(PIN); await c.send('3'); await c.send('1'); await c.send('/9/x.wav'); await c.send();
+  await c.send(); await c.send(PIN); await c.send('3'); await c.send('2'); await c.send('/9/x.wav'); await c.send();
   assert.match(await c.send('2'), /record/);
   await c.send('/9/y.wav');
   assert.match(await c.send(), /לשליחה הקש 1/);
@@ -118,7 +118,7 @@ test('הקלטה מחדש (2) לא יוצרת משימה נוספת; ביטול 
 test('תמלול ריק מבקש הקלטה מחדש בלי ביצוע', async () => {
   const { flow, tasks } = setup({ transcribeRecording: async () => '' });
   const c = call(flow);
-  await c.send(); await c.send(PIN); await c.send('3'); await c.send('1'); await c.send('/9/x.wav');
+  await c.send(); await c.send(PIN); await c.send('3'); await c.send('2'); await c.send('/9/x.wav');
   assert.match(await c.send(), /לא זוהה דיבור.*record/);
   assert.equal(tasks.listActive().length, 0);
 });
@@ -127,7 +127,7 @@ test('פרויקט חדש מהטלפון: הקלדה, אישור, ואז הקל�
   const { flow, store } = setup();
   const c = call(flow);
   await c.send(); await c.send(PIN); await c.send('3');
-  assert.match(await c.send('2'), /פרויקט חדש/);
+  assert.match(await c.send('1'), /פרויקט חדש/);
   assert.match(await c.send('2'), /HebrewKeyboard/);
   // שם מוקלד נוצר מיד, בלי שאלת אישור
   assert.match(await c.send('חנות'), /הפרויקט חנות נוצר.*record/);
@@ -167,7 +167,7 @@ test('ניתוק אחרי שהתוצאה הוקראה מסמן אותה כנשמ
 test('שם פרויקט שנאמר בקול מוקרא לאישור', async () => {
   const { flow } = setup();
   const c = call(flow);
-  await c.send(); await c.send(PIN); await c.send('3'); await c.send('2');
+  await c.send(); await c.send(PIN); await c.send('3'); await c.send('1');
   assert.match(await c.send('1'), /voice/);
   assert.match(await c.send('בדיקה'), /שם הפרויקט: בדיקה.*לאישור/);
 });
@@ -202,15 +202,79 @@ test('הגדרות: בחירת קול ומהירות מוחלת על השלוח�
   await c.send('3');
   await c.send('3');
   assert.deepEqual(voiceCalls.at(-1), ['Sivan', 4]);
-  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default' });
+  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full' });
+});
+
+function doneTask(tasks: Tasks, projId: string, resultText: string, resultSummary: string) {
+  const t = tasks.create({ projectId: projId, source: 'phone', prompt: 'x' });
+  tasks.transition(t.id, 'awaiting_transcript', 'x'); tasks.transition(t.id, 'queued', 'x'); tasks.transition(t.id, 'running', 'x');
+  return tasks.transition(t.id, 'done', 'x', undefined, { resultText, resultSummary });
+}
+
+test('תוצאה: ברירת המחדל מקריאה את התשובה המלאה בתוך read (ניתנת לקטיעה), מקש 4 עובר לסיכום', async () => {
+  const { flow, tasks, proj } = setup();
+  const long = 'הוספתי את הכפתור.\n---\n## פירוט\n- הקובץ `header.tsx` עודכן\n```js\nconsole.log(1)\n```\nהכל עובד. ' + 'מילה '.repeat(120);
+  doneTask(tasks, proj.id, long, 'הוספתי את הכפתור');
+  const c = call(flow);
+  await c.send(); await c.send(PIN);
+  const body = await c.send('4');
+  // הכל בפקודת read אחת, בלי id_list_message, והטקסט המלא מפוצל למקטעי t-
+  assert.doesNotMatch(body, /id_list_message/);
+  assert.match(body, /^read=t-/);
+  assert.match(body, /הכל עובד/);
+  assert.match(body, /קוד מופיע בלוח הבקרה/);
+  assert.doesNotMatch(body, /```|##/);
+  assert.match(body, /לסיכום הקצר 4/);
+  assert.match(body, /Ok,EMPTY/);
+  const summary = await c.send('4');
+  assert.match(summary, /הוספתי את הכפתור/);
+  assert.doesNotMatch(summary, /הכל עובד/);
+  assert.match(summary, /לתשובה המלאה 4/);
+  // תום ההמתנה בלי הקשה: לתפריט, בלי להקריא הכל שוב
+  assert.match(await c.send('EMPTY'), /לא התקבלה בחירה.*להמשך שיחה 2/);
+});
+
+test('הגדרות: מקש 7 קובע סיכום בלבד, וזה חל על ההקראה הבאה', async () => {
+  const { flow, tasks, store, proj } = setup();
+  doneTask(tasks, proj.id, 'סיכום קצר.\n---\nפירוט ארוך מאוד', 'סיכום קצר');
+  const c = call(flow);
+  await c.send(); await c.send(PIN);
+  assert.match(await c.send('7'), /בסיום משימה מוקראת התשובה המלאה.*למה מוקרא בסיום משימה 7/);
+  assert.match(await c.send('7'), /להקראת הסיכום הקצר בלבד 2/);
+  assert.match(await c.send('2'), /מעכשיו בסיום משימה מוקרא הסיכום הקצר/);
+  assert.equal(store.getSettings().readback, 'summary');
+  await c.send('0');
+  const body = await c.send('4');
+  assert.match(body, /סיכום קצר/);
+  assert.doesNotMatch(body, /פירוט ארוך/);
 });
 
 test('סולמית לבד ברשימה עוברת לעמוד הבא', async () => {
   const { flow, store } = setup();
   for (let i = 0; i < 12; i++) store.addProject({ name: 'פ' + i, path: '/tmp/p' + i });
   const c = call(flow);
-  await c.send(); await c.send(PIN); await c.send('3');
-  assert.match(await c.send('EMPTY'), /לפ8 הקש 1/);
+  await c.send(); await c.send(PIN);
+  // עמוד ראשון: פרויקט חדש במקש 1, ואז שמונה פרויקטים (אתר, פ0..פ6) במקשים 2 עד 9
+  const first = await c.send('3');
+  assert.match(first, /לפרויקט חדש הקש 1.*לאתר הקש 2.*לפ6 הקש 9.*לעמוד הבא הקש סולמית/);
+  assert.doesNotMatch(first, /לפ7 הקש/);
+  const second = await c.send('EMPTY');
+  assert.match(second, /לפרויקט חדש הקש 1.*לפ7 הקש 2.*לפ11 הקש 6/);
+  assert.match(await c.send('2'), /שיחה חדשה בפרויקט פ7/);
+});
+
+test('רשימת השיחות: מקש 1 פותח שיחה חדשה (רשימת הפרויקטים), השיחות ממקש 2', async () => {
+  const { flow, store, proj } = setup();
+  store.upsertConversation({ id: 'sess-a', projectId: proj.id, title: 'שיחה א', source: 'phone' });
+  const c = call(flow);
+  await c.send(); await c.send(PIN);
+  const list = await c.send('2');
+  assert.match(list, /^read=t-/);
+  assert.match(list, /לשיחה חדשה הקש 1.*2 אתר שיחה א/);
+  assert.match(await c.send('2'), /המשך השיחה שיחה א.*record/);
+  const c2 = call(flow, 'CALL2');
+  await c2.send(); await c2.send(PIN); await c2.send('2');
+  assert.match(await c2.send('1'), /לפרויקט חדש הקש 1.*לאתר הקש 2/);
 });
 
 function pendingReq(store: StoreT, tasks: Tasks, projId: string, toolName: string, input: any, summary: string) {
@@ -289,7 +353,7 @@ test('הגדרות: כיבוי והפעלה של צינתוקים', async () => 
 test('מודל: לבקשה הזו (4 במסך האישור) ובהגדרות (7, 5)', async () => {
   const { flow, tasks, store, kicks } = setup();
   const c = call(flow);
-  await c.send(); await c.send(PIN); await c.send('3'); await c.send('1'); await c.send('/9/x.wav');
+  await c.send(); await c.send(PIN); await c.send('3'); await c.send('2'); await c.send('/9/x.wav');
   assert.match(await c.send(), /לשליחה עם מודל אחר 4/);
   assert.match(await c.send('4'), /להייקו 5/);
   assert.match(await c.send('5'), /נשלח עם הייקו/);

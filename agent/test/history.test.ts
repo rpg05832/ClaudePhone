@@ -100,7 +100,7 @@ test('טלפון: מקש 2 מציג שיחת Desktop, וחוסם המשך עם �
   const list = await send('2');
   assert.match(list, /דף הבית החדש מדסקטופ/);
   assert.match(list, /לא זמינה להמשך/);
-  const idxOf = idx.forPhone().findIndex(c => c.id === 'desk-1') + 1;
+  const idxOf = idx.forPhone().findIndex(c => c.id === 'desk-1') + 2;   // מקש 1 = שיחה חדשה
   assert.match(await send(String(idxOf)), /המשך שיחות מהמקור הזה כבוי בהגדרות/);
 });
 
@@ -145,7 +145,7 @@ test('טלפון: מקש 8 מקריא גם שיחות מחוץ לפרויקטי�
   assert.match(await send('4321'), /לכל השיחות במחשב 8/);
   const list = await send('8');
   assert.match(list, /שיחה מחוץ לפרויקטים מויזואל סטודיו/);
-  const pos = idx.allForPhone().findIndex(c => c.id === 'out-1') + 1;
+  const pos = idx.allForPhone().findIndex(c => c.id === 'out-1') + 2;   // מקש 1 = שיחה חדשה
   assert.match(await send(String(pos)), /record/);
   assert.deepEqual(ensured, [outside]);
   // התיקייה נרשמה, אבל לא מופיעה ברשימת הפרויקטים במקש 3

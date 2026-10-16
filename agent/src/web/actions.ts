@@ -1,7 +1,7 @@
 // שלב 4: פעולות מלוח הבקרה. עוברות דרך אותו תור, אותן נעילות ואותו מתווך הרשאות כמו מהטלפון.
 // ההגנה (אסימון מקומי, Origin, כותרת X-CP) נעשית בשרת הלוח לפני שמגיעים לכאן.
 import type { Store, EditMode } from '../store/db.ts';
-import { VOICES, MODELS, EFFORTS } from '../store/db.ts';
+import { VOICES, MODELS, EFFORTS, READBACKS } from '../store/db.ts';
 import type { Tasks } from '../store/tasks.ts';
 import type { ConversationIndex } from '../history/conversations.ts';
 import type { DecideResult } from '../claude/broker.ts';
@@ -15,6 +15,7 @@ import type { Updater } from '../update/updater.ts';
 import { REPO_RE } from '../update/updater.ts';
 import type { ProjectsLocation } from '../projects-location.ts';
 import { pickFolder } from './open.ts';
+import type { McpScan } from '../claude/mcp.ts';
 import { log } from '../log.ts';
 
 export interface ActionDeps {
@@ -33,6 +34,10 @@ export interface ActionDeps {
   quiet?: QuietConfig;
   /** פותח חלון טרמינל עם Claude Code ועם ערוץ הטלפון בתיקיית הפרויקט (סשן חי). מחזיר את התיקייה. */
   openLive?: (projectId: string) => string;
+  /** פותח חלון טרמינל שממשיך שיחה קיימת (claude --resume) בתיקייה שלה. */
+  openTerminal?: (conversationId: string, cwd: string) => void;
+  /** פותח את סייר הקבצים בתיקייה. */
+  openFolder?: (path: string) => void;
   /** תיקיית config.json (בבדיקות: זמנית). */
   root?: string;
   /** עדכון מתוך התוכנה. */
@@ -43,6 +48,8 @@ export interface ActionDeps {
   ensureProject?: (folder: string) => string;
   /** חלון בחירת תיקייה (נדרס בבדיקות). */
   pickFolder?: (initial: string | null, title: string) => Promise<string | null>;
+  /** סריקת חיבורי ה-MCP שקיימים במחשב (הרצה קצרה של Claude Code). */
+  scanMcp?: () => Promise<McpScan>;
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -57,7 +64,14 @@ const DECIDE_MSG: Record<string, string> = {
 };
 
 export class DashboardActions {
+  private mcpScanning = false;
   constructor(private d: ActionDeps) {}
+
+  /** מצב חיבורי ה-MCP לתצוגה בלוח: הסריקה האחרונה, ומה פתוח. */
+  mcpView(): { enabled: string[]; scan: McpScan | null; scanning: boolean } {
+    const cfg = this.d.cfg;
+    return { enabled: cfg?.mcp.enabled ?? [], scan: cfg?.mcp.scan ?? null, scanning: this.mcpScanning };
+  }
 
   async handle(path: string, body: any): Promise<Result> {
     let m: RegExpMatchArray | null;
@@ -100,6 +114,33 @@ export class DashboardActions {
       if (!this.d.location) return bad('לא זמין');
       try { return ok(this.d.location.change(String(body?.parent ?? ''), body?.move === true)); }
       catch (e) { return bad(e instanceof Error ? e.message : String(e)); }
+    }
+
+    // חיבורי MCP למשימות מהטלפון: סריקה של מה שקיים במחשב, ובחירה אילו שרתים פתוחים
+    if (path === '/mcp/scan') {
+      const cfg = this.d.cfg;
+      if (!this.d.scanMcp || !cfg) return bad('לא זמין');
+      if (this.mcpScanning) return bad('סריקה כבר רצה');
+      this.mcpScanning = true;
+      try {
+        const scan = await this.d.scanMcp();
+        cfg.mcp.scan = scan;
+        // שרת שנבחר בעבר ונעלם מהמחשב נשאר ברשימה (אולי ייטען שוב), אבל מסומן בלוח
+        saveUserConfig({ mcp: { scan } }, this.d.root ?? AGENT_ROOT);
+        log('web', `סריקת חיבורי MCP: ${scan.servers.length} שרתים`);
+        return ok(this.mcpView());
+      } catch (e) { return bad(`הסריקה נכשלה: ${e instanceof Error ? e.message : String(e)}`); }
+      finally { this.mcpScanning = false; }
+    }
+    if (path === '/mcp') {
+      const cfg = this.d.cfg;
+      if (!cfg) return bad('לא זמין');
+      const enabled = Array.isArray(body?.enabled) ? [...new Set(body.enabled.map((s: unknown) => String(s)).filter((s: string) => /^[\w-]+$/.test(s)))] : null;
+      if (!enabled) return bad('חסרה רשימת חיבורים');
+      cfg.mcp.enabled = enabled as string[];
+      saveUserConfig({ mcp: { enabled } }, this.d.root ?? AGENT_ROOT);
+      log('web', `חיבורי MCP לטלפון: ${enabled.length ? (enabled as string[]).join(', ') : 'אין'}`);
+      return ok(this.mcpView());
     }
 
     // פרויקט חדש (תיקייה חדשה בתיקיית הפרויקטים)
@@ -191,6 +232,7 @@ export class DashboardActions {
       if (body?.notify !== undefined) { if (body.notify !== 'on' && body.notify !== 'off') return bad('ערך לא תקין'); this.d.store.setSetting('notify', body.notify); }
       if (body?.effort !== undefined) { if (!EFFORTS.some(m => m.id === body.effort)) return bad('רמת חשיבה לא תקינה'); this.d.store.setSetting('effort', body.effort); }
       if (body?.model !== undefined) { if (!MODELS.some(m => m.id === body.model)) return bad('מודל לא תקין'); this.d.store.setSetting('model', body.model); }
+      if (body?.readback !== undefined) { if (!READBACKS.some(m => m.id === body.readback)) return bad('ערך לא תקין'); this.d.store.setSetting('readback', body.readback); }
       const after = this.d.store.getSettings();
       let warning: string | null = null;
       if ((after.voice !== before.voice || after.rate !== before.rate) && this.d.applyVoice) {
@@ -245,6 +287,23 @@ export class DashboardActions {
       if (!this.d.openLive) return bad('לא זמין');
       try { return ok({ opened: this.d.openLive(String(body?.projectId ?? '')) }); }
       catch (e) { return bad(e instanceof Error ? e.message : String(e)); }
+    }
+
+    // שיחה במחשב: חלון Claude Code שממשיך את השיחה הזו, או סייר הקבצים בתיקייה שלה (הנתיב מהאינדקס, לא מהלקוח)
+    if ((m = path.match(/^\/conversations\/([\w-]+)\/(open-terminal|open-folder)$/))) {
+      const raw = this.d.conversations.get(m[1]);
+      const conv = raw ? this.d.conversations.autoFolderView(raw) : null;
+      if (!conv) return bad('השיחה לא נמצאה', 404);
+      const folder = conv.folder ?? null;
+      if (!folder || !existsSync(folder)) return bad('התיקייה של השיחה לא נמצאה במחשב');
+      try {
+        if (m[2] === 'open-folder') { if (!this.d.openFolder) return bad('לא זמין'); this.d.openFolder(folder); return ok({ opened: folder }); }
+        if (conv.source === 'cowork') return bad('שיחת Cowork פותחים ב-Claude Desktop, לא בטרמינל');
+        if (!conv.inHistory) return bad('ההיסטוריה של השיחה לא נמצאה במחשב, אז אין מה להמשיך בטרמינל');
+        if (!this.d.openTerminal) return bad('לא זמין');
+        this.d.openTerminal(conv.id, folder);
+        return ok({ opened: folder });
+      } catch (e) { return bad(e instanceof Error ? e.message : String(e)); }
     }
 
     return bad('לא נמצא', 404);

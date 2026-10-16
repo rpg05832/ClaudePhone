@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { act, useApi, useLiveConnected, type Overview, type Conversation, type Task, type HistoryMessage, type PermissionRequest, type Project, type PhoneLogEntry } from './api';
+import { act, useApi, useLiveConnected, type Overview, type Conversation, type Task, type PermissionRequest, type Project, type PhoneLogEntry } from './api';
 import Setup from './Setup';
 import Help from './Help';
 import { CreditLine } from './Credits';
 import { UpdateBanner, UpdateBox, LocationCard } from './Maintenance';
+import ConversationView, { Composer } from './Chat';
 import { MODEL_LABEL, EFFORT_LABEL, when, until, full, STATE_LABEL, stateTone, SOURCE_LABEL, DECISION_LABEL, VIA_LABEL, MODE_LABEL, VOICE_LABEL, PHONE_KIND } from './format';
 
 // ---------- ניתוב פשוט לפי hash ----------
@@ -156,50 +157,6 @@ function Conversations() {
   );
 }
 
-function ConversationView({ id }: { id: string }) {
-  const s = useApi<{ entry: Conversation; messages: HistoryMessage[]; tasks: Task[] }>(`/conversations/${id}`);
-  const [showTools, setShowTools] = useState(false);
-  if (!s.data) return <section><a className="back" href="#/conversations">→ כל השיחות</a><Loading s={s} /></section>;
-  const { entry, messages, tasks } = s.data;
-  const msgs = showTools ? messages : messages.filter(m => m.role !== 'tool');
-  return (
-    <section>
-      <a className="back" href="#/conversations">→ כל השיחות</a>
-      <div className="head"><h1>{entry.title}</h1></div>
-      <div className="row meta big">
-        <span>{entry.projectName ?? 'בלי פרויקט'}</span>
-        <span className={`pill src-${entry.source}`}>{SOURCE_LABEL[entry.source]}</span>
-        {entry.coworkProject && <span className="pill">פרויקט Cowork: {entry.coworkProject}</span>}
-        {entry.active && <span className="pill busy">פעילה כרגע</span>}
-        <span className="muted">עודכנה {full(entry.lastActiveAt)}</span>
-        {!entry.canContinue && entry.blockedReason && <span className="muted">· {entry.blockedReason}</span>}
-      </div>
-
-      {(entry.canContinue || entry.source === 'phone') && entry.projectId
-        ? <Composer conversationId={entry.id} placeholder="המשך השיחה: מה לעשות עכשיו?" />
-        : <p className="hint">{entry.blockedReason ?? 'אי אפשר להמשיך את השיחה הזו מכאן'}</p>}
-
-      {tasks.length > 0 && <>
-        <h2>מה נשלח מהטלפון ומהלוח</h2>
-        <div className="stack">{tasks.map(t => <TaskCard key={t.id} t={t} />)}</div>
-      </>}
-
-      <div className="row between"><h2>השיחה המלאה</h2>
-        {messages.some(m => m.role === 'tool') && <label className="toggle"><input type="checkbox" checked={showTools} onChange={e => setShowTools(e.target.checked)} /> הצג פעולות של Claude</label>}
-      </div>
-      {!entry.inHistory && <Empty>היסטוריית Claude של השיחה הזו לא נמצאה במחשב.</Empty>}
-      <div className="timeline">
-        {msgs.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
-            <div className="who">{m.role === 'user' ? 'אתה' : m.role === 'assistant' ? 'Claude' : `פעולה: ${m.tool?.name}`}<span>{when(m.at)}</span></div>
-            {m.role === 'tool' ? <code className="tool">{m.tool?.input}</code> : <div className="text">{m.text}</div>}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function TaskCard({ t }: { t: Task }) {
   const [open, setOpen] = useState(false);
   return (
@@ -221,38 +178,6 @@ function TaskCard({ t }: { t: Task }) {
         <button className="linkbtn" onClick={() => setOpen(o => !o)}>{open ? 'הסתר' : 'הצג'} את התשובה המלאה של Claude</button>
         {open && <div className="text full">{t.resultText}</div>}
       </>}
-    </div>
-  );
-}
-
-// ---------- שליחת משימה (שלב 4) ----------
-function Composer({ conversationId, projectId, placeholder }: { conversationId?: string; projectId?: string; placeholder: string }) {
-  const [text, setText] = useState('');
-  const [model, setModel] = useState('default');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const send = async () => {
-    if (!text.trim()) return;
-    setBusy(true); setMsg(null);
-    try {
-      const t = await act<Task>('/tasks', { conversationId, projectId, prompt: text, model });
-      setText(''); setMsg({ ok: true, text: `משימה ${t.num} נכנסה לתור. התשובה תופיע כאן ובעמוד המשימות.` });
-    } catch (e: any) { setMsg({ ok: false, text: e.message }); }
-    setBusy(false);
-  };
-  return (
-    <div className="composer">
-      <textarea rows={3} value={text} onChange={e => setText(e.target.value)} placeholder={placeholder}
-        onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); }} />
-      <div className="row">
-        <button className="btn primary" onClick={send} disabled={busy || !text.trim() || (!conversationId && !projectId)}>{busy ? 'שולח…' : 'שלח ל-Claude'}</button>
-        <select value={model} onChange={e => setModel(e.target.value)} aria-label="מודל">
-          <option value="default">מודל לפי ההגדרות</option>
-          {['fable', 'opus', 'sonnet', 'haiku'].map(m => <option key={m} value={m}>{MODEL_LABEL[m]}</option>)}
-        </select>
-        <span className="muted">Ctrl+Enter לשליחה · ההרשאות לפי מצב העבודה</span>
-      </div>
-      {msg && <div className={msg.ok ? 'okbox' : 'error'}>{msg.text}</div>}
     </div>
   );
 }
@@ -625,6 +550,13 @@ function SettingsForm({ s }: { s: Overview['settings'] }) {
           <select value={s.model ?? 'default'} onChange={e => save({ model: e.target.value })}>{Object.entries(MODEL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
         <label className="field short"><span>רמת חשיבה</span>
           <select value={s.effort ?? 'default'} onChange={e => save({ effort: e.target.value })}>{Object.entries(EFFORT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+      </div>
+      <div className="row">
+        <label className="field short"><span>מה מוקרא בטלפון בסיום משימה</span>
+          <select value={s.readback ?? 'full'} onChange={e => save({ readback: e.target.value })}>
+            <option value="full">התשובה המלאה של Claude (אפשר לקטוע בהקשה)</option>
+            <option value="summary">הסיכום הקצר בלבד</option>
+          </select></label>
       </div>
       <label className="check"><input type="checkbox" checked={s.notify === 'on'} onChange={e => save({ notify: e.target.checked ? 'on' : 'off' })} /> צינתוק לטלפון כשמשימה מהטלפון מסתיימת או מחכה לאישור</label>
       {msg && <div className={msg.ok ? 'hint' : 'error'}>{msg.text}</div>}

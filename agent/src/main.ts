@@ -24,6 +24,7 @@ import { ClaudeHistory } from './history/claude-history.ts';
 import { ConversationIndex } from './history/conversations.ts';
 import { CoworkHistory } from './history/cowork.ts';
 import { splitSummary, cleanForSpeech } from './claude/runner.ts';
+import { discoverMcp, serverLabel } from './claude/mcp.ts';
 import { startDashboard, loadOrCreateToken } from './web/server.ts';
 import { DashboardActions } from './web/actions.ts';
 import { openDashboardWindow, desktopShortcutScript, startupScript } from './web/open.ts';
@@ -157,13 +158,14 @@ const liveTokenFile = join(cfg.dataDir, 'live.token');
 const liveToken = loadOrCreateToken(liveTokenFile);
 const liveMcpPath = join(cfg.dataDir, 'live-mcp.json');
 const liveCmdPath = join(cfg.dataDir, 'claude-live.cmd');
+/** Claude Code של ה-SDK (אותו קובץ שמריץ את המשימות), ואם אין: claude מה-PATH. */
+const claudeExe = (() => { const d = packageDir('@anthropic-ai/claude-agent-sdk-win32-x64'); return d ? join(d, 'claude.exe') : 'claude'; })();
 {
   const channelScript = join(AGENT_ROOT, 'channel', 'claudephone-channel.mjs');
   writeFileSync(liveMcpPath, JSON.stringify({ mcpServers: { claudephone: {
     command: process.execPath, args: [channelScript],
     env: { CP_AGENT_URL: `http://127.0.0.1:${cfg.dashboard.port}`, CP_LIVE_TOKEN_FILE: liveTokenFile },
   } } }, null, 2));
-  const claudeExe = (() => { const d = packageDir('@anthropic-ai/claude-agent-sdk-win32-x64'); return d ? join(d, 'claude.exe') : 'claude'; })();
   const DEV_CHANNELS_FLAG = '--dangerously-load-development-channels';
   writeFileSync(liveCmdPath, [
     '@echo off',
@@ -195,11 +197,29 @@ function openLiveTerminal(projectId: string): string {
   spawn('cmd.exe', ['/c', 'start', 'Claude בטלפון', '/D', p.path, 'cmd.exe', '/k', liveCmdPath], { detached: true, stdio: 'ignore' }).unref();
   return p.path;
 }
+/** חלון טרמינל שממשיך שיחה קיימת בתיקייה שלה (כפתור "פתח בטרמינל" בלוח). המזהה מהאינדקס שלנו, לא מהלקוח. */
+const resumeCmdPath = join(cfg.dataDir, 'claude-resume.cmd');
+writeFileSync(resumeCmdPath, ['@echo off', 'chcp 65001 >nul', `"${claudeExe}" --resume %1`, ''].join('\r\n'), 'utf8');
+function openResumeTerminal(conversationId: string, cwd: string): void {
+  if (!/^[\w-]+$/.test(conversationId)) throw new Error('מזהה שיחה לא תקין');
+  spawn('cmd.exe', ['/c', 'start', 'Claude Code', '/D', cwd, 'cmd.exe', '/k', resumeCmdPath, conversationId], { detached: true, stdio: 'ignore' }).unref();
+}
+function openFolderWindow(path: string): void {
+  spawn('explorer.exe', [path], { detached: true, stdio: 'ignore' }).unref();
+}
 
 const { query } = await import('@anthropic-ai/claude-agent-sdk');
+/** חיבורי MCP שפתוחים לטלפון, עם שמות להקראה ורשימת כל השרתים המוכרים (להסתרת השאר). */
+function mcpPolicy() {
+  if (!cfg.mcp.enabled.length) return undefined;
+  const known = cfg.mcp.scan?.servers ?? [];
+  const labels = Object.fromEntries(known.map(s => [s.slug, serverLabel(s.name)]));
+  return { enabled: cfg.mcp.enabled, labels, known: known.map(s => s.slug) };
+}
 const worker = new Worker({
   store, tasks, query: query as any, maxTurns: cfg.claude.maxTurns, model: cfg.claude.model, permissionMinutes: cfg.limits.permissionMinutes,
   broker,
+  mcp: () => mcpPolicy(),
   coworkRun: (id) => conversations.coworkRun(id),
   live: { send: (sid, chat, text, onPerm) => live.send(sid, chat, text, onPerm), cancel: (sid, chat) => live.cancel(sid, chat) },
   // משימה שנשלחה מלוח הבקרה: המשתמש ליד המחשב, בלי צינתוק על הסיום
@@ -237,6 +257,8 @@ const flow = new PhoneFlow({
   lastAnswer: (id) => {
     const last = conversations.messages(id, 50).filter(m => m.role === 'assistant' && m.text.trim()).pop();
     if (!last) return null;
+    // לפי ההגדרה: התשובה המלאה (אפשר לקטוע בהקשה), או הסיכום הקצר שבראשה
+    if (store.getSettings().readback === 'full') return cleanForSpeech(last.text);
     const t = cleanForSpeech(splitSummary(last.text).summary || last.text);
     return t.length > 700 ? t.slice(0, 700) + '. ההמשך בלוח הבקרה' : t;
   },
@@ -283,6 +305,9 @@ const dash = startDashboard({
   actions: new DashboardActions({
     store, tasks, conversations, cfg, quiet,
     openLive: (projectId) => openLiveTerminal(projectId),
+    openTerminal: (id, cwd) => openResumeTerminal(id, cwd),
+    openFolder: (p) => openFolderWindow(p),
+    scanMcp: () => discoverMcp(query as any, cfg.projects.newProjectsParent && existsSync(cfg.projects.newProjectsParent) ? cfg.projects.newProjectsParent : AGENT_ROOT),
     updater, location,
     ensureProject: (folder) => ensureProjectForFolder(folder),
     createProject: (name) => createProjectFromPhone(store, cfg.projects.newProjectsParent, name, cfg.projects.initGit),
