@@ -2,7 +2,7 @@
 // לינוקס: גם מחשב עם שולחן עבודה וגם שרת בלי מסך. בלי מסך, הפעולות הגרפיות (פתיחת דפדפן, טרמינל, תיקייה, חלון בחירה)
 // לא נכשלות בשקט: הן זורקות שגיאה ברורה שמוצגת בלוח הבקרה.
 import { existsSync, readdirSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
-import { join, delimiter, dirname } from 'node:path';
+import { join, delimiter, dirname, posix } from 'node:path';
 import { homedir } from 'node:os';
 import { spawn, execFileSync } from 'node:child_process';
 
@@ -168,8 +168,8 @@ export function systemdUserDir(home = homedir(), env = process.env): string {
 
 /** קובץ השירות. Restart=always: גם "הפעלה מחדש" מתוך התוכנה היא יציאה ש-systemd מעלה ממנה מופע חדש. */
 export function serviceUnit(appDir: string, path = process.env.PATH ?? ''): string {
-  const node = join(appDir, 'runtime', 'node');
-  const agent = join(appDir, 'agent', 'dist', 'agent.mjs');
+  const node = posix.join(appDir, 'runtime', 'node');
+  const agent = posix.join(appDir, 'agent', 'dist', 'agent.mjs');
   return [
     '[Unit]',
     'Description=Claude בטלפון (ClaudePhone agent)',
@@ -178,7 +178,7 @@ export function serviceUnit(appDir: string, path = process.env.PATH ?? ''): stri
     '',
     '[Service]',
     'Type=simple',
-    `WorkingDirectory=${join(appDir, 'agent')}`,
+    `WorkingDirectory=${posix.join(appDir, 'agent')}`,
     `ExecStart="${node}" "${agent}" --no-open`,
     'Restart=always',
     'RestartSec=3',
@@ -237,7 +237,7 @@ export function desktopEntry(appDir: string, launcher: string, arg: string, auto
     'Name[he]=Claude בטלפון',
     'Comment=לוח הבקרה של Claude בטלפון',
     `Exec="${launcher}" ${arg}`,
-    `Icon=${join(appDir, 'icon.png')}`,
+    `Icon=${posix.join(appDir, 'icon.png')}`,
     'Terminal=false',
     'Categories=Utility;Development;',
     ...(autostart ? ['X-GNOME-Autostart-enabled=true', 'NoDisplay=true'] : ['StartupNotify=false']),
