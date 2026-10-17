@@ -157,7 +157,15 @@ export class SetupApi {
       }
 
       case '/phones': {
-        const phones = (Array.isArray(body?.phones) ? body.phones : []).map((p: string) => normalizePhone(String(p))).filter(Boolean) as string[];
+        const raw = (Array.isArray(body?.phones) ? body.phones : []).map((p: unknown) => String(p ?? '').trim()).filter(Boolean);
+        const added = raw.map(normalizePhone);
+        if (added.some((p: string | null) => !p)) return bad('אחד המספרים לא תקין. מספר ישראלי, למשל 0501234567');
+        // keep: מספרים קיימים שנשארים, לפי המיקום שלהם ברשימה (הלוח מציג אותם מוסתרים ולא מקבל את המספר המלא).
+        // בלי keep: הרשימה מוחלפת (כמו קודם)
+        const keep = Array.isArray(body?.keep)
+          ? (body.keep as unknown[]).map(Number).filter(i => Number.isInteger(i) && i >= 0 && i < c.phones.allowed.length).map(i => c.phones.allowed[i])
+          : [];
+        const phones = [...keep, ...(added as string[])];
         if (!phones.length) return bad('יש להזין לפחות מספר טלפון אחד תקין');
         const pin = String(body?.pin ?? '');
         const hasPin = !!loadPinHash(c.phones.pinHashFile);

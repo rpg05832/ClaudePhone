@@ -304,7 +304,7 @@ function Yemot({ status, next, back }: { status: Status | null; next: () => void
         <p>לא להדביק את הסיסמה של המערכת. רק טוקן.</p>
       </details>
       <label className="field"><span>טוקן API {already && <em className="muted">(כבר שמור. השאר ריק כדי לא לשנות)</em>}</span>
-        <input type="password" autoComplete="off" value={token} onChange={e => { setToken(e.target.value); setSaved(null); }} dir="ltr" required={!already} /></label>
+        <input type="password" autoComplete="off" value={token} onChange={e => { setToken(e.target.value); setSaved(null); }} dir="ltr" required={!already && !saved} /></label>
       <label className="field short"><span>מספר השלוחה</span>
         <input value={ext} onChange={e => { setExt(e.target.value); setSaved(null); setConfirm(null); }} dir="ltr" inputMode="numeric" required /></label>
       <p className="hint">כדאי לבחור שלוחה פנויה. אם בשלוחה כבר יש משהו אחר, נשאל לפני שמחליפים.</p>
@@ -318,7 +318,7 @@ function Yemot({ status, next, back }: { status: Status | null; next: () => void
       {saved && <p className="okbox">✓ התחבר למערכת {saved.systemNumber}{saved.units !== null ? ` · יתרת יחידות: ${saved.units}` : ''}. השלוחה {ext} תוגדר בהפעלה.</p>}
       {err && <div className="error">{err}</div>}
       <div className="wiz-nav">
-        {saved ? <button className="btn primary" type="submit">המשך</button> : <button className="btn primary" type="submit" disabled={busy || !!confirm}>{busy ? 'בודק…' : 'בדוק ושמור'}</button>}
+        {saved ? <button className="btn primary" type="button" onClick={next}>המשך</button> : <button className="btn primary" type="submit" disabled={busy || !!confirm}>{busy ? 'בודק…' : 'בדוק ושמור'}</button>}
         {already && !saved && <button className="btn" type="button" onClick={next}>השאר כמו שהוא</button>}
         <button className="btn" type="button" onClick={back}>חזרה</button>
       </div>
@@ -327,28 +327,53 @@ function Yemot({ status, next, back }: { status: Status | null; next: () => void
 }
 
 // ---------- 6. טלפונים ו-PIN ----------
+// כשכבר יש מספרים: מוצגים (מוסתרים), ואפשר להשאיר, להסיר או להוסיף בלי להקליד שוב. הקוד נשאר אם משאירים ריק.
 function Phones({ status, next, back }: { status: Status | null; next: () => void; back: () => void }) {
+  const existing = status?.phones ?? [];
+  const [keep, setKeep] = useState<boolean[]>(() => existing.map(() => true));
   const [phones, setPhones] = useState<string[]>(['']);
   const [pin, setPin] = useState(''); const [pin2, setPin2] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const hasPin = status?.done.pin;
+  // הסטטוס נטען אחרי שהמסך עלה: מסנכרנים את רשימת הקיימים
+  useEffect(() => { setKeep(existing.map(() => true)); }, [existing.join('|')]);
+  const kept = keep.filter(Boolean).length;
+  const added = phones.filter(p => p.trim()).length;
+  const unchanged = existing.length > 0 && kept === existing.length && !added && !pin && !pin2;
   const submit = async () => {
     setErr(null);
+    if (unchanged && hasPin) return next();
     if (pin !== pin2) return setErr('שני הקודים לא זהים');
+    if (!kept && !added) return setErr('צריך להשאיר לפחות מספר טלפון אחד');
     setBusy(true);
-    try { await post('/phones', { phones: phones.filter(p => p.trim()), pin }); setPin(''); setPin2(''); next(); } catch (e: any) { setErr(e.message); }
+    try {
+      await post('/phones', { keep: keep.map((k, i) => k ? i : -1).filter(i => i >= 0), phones: phones.filter(p => p.trim()), pin });
+      setPin(''); setPin2(''); next();
+    } catch (e: any) { setErr(e.message); }
     setBusy(false);
   };
   return (
     <form onSubmit={e => { e.preventDefault(); submit(); }}>
       <h1>טלפונים וקוד כניסה</h1>
       <p>רק ממספרים שברשימה אפשר להיכנס לשלוחה, ורק עם הקוד.</p>
-      {status?.phones.length ? <p className="hint">כרגע מורשים: {status.phones.join(', ')}. מה שתשמור כאן יחליף את הרשימה.</p> : null}
+      {existing.length > 0 && (
+        <>
+          <h2>מספרים מורשים</h2>
+          <ul className="plain">
+            {existing.map((p, i) => (
+              <li key={i} className="row">
+                <span dir="ltr" style={keep[i] ? undefined : { textDecoration: 'line-through', opacity: 0.6 }}>{p}</span>
+                <button type="button" className="linkbtn" onClick={() => setKeep(keep.map((k, j) => j === i ? !k : k))}>{keep[i] ? 'הסר' : 'בטל הסרה'}</button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {phones.map((p, i) => (
         <div className="row" key={i}>
-          <label className="field short"><span>{i === 0 ? 'מספר טלפון' : 'מספר נוסף'}</span>
-            <input value={p} onChange={e => setPhones(phones.map((x, j) => j === i ? e.target.value : x))} dir="ltr" inputMode="tel" required={i === 0} placeholder="0501234567" /></label>
+          <label className="field short"><span>{existing.length || i > 0 ? 'מספר נוסף' : 'מספר טלפון'}</span>
+            <input value={p} onChange={e => setPhones(phones.map((x, j) => j === i ? e.target.value : x))} dir="ltr" inputMode="tel" required={!existing.length && i === 0} placeholder="0501234567" /></label>
           {i > 0 && <button type="button" className="linkbtn" onClick={() => setPhones(phones.filter((_, j) => j !== i))}>הסר</button>}
         </div>
       ))}
@@ -361,7 +386,10 @@ function Phones({ status, next, back }: { status: Status | null; next: () => voi
       </div>
       <p className="hint">הקוד נשמר מוצפן (hash) ולא ניתן לשחזר אותו. אחרי 5 ניסיונות שגויים הכניסה ננעלת ל-15 דקות.</p>
       {err && <div className="error">{err}</div>}
-      <div className="wiz-nav"><button className="btn primary" type="submit" disabled={busy}>שמור והמשך</button><button className="btn" type="button" onClick={back}>חזרה</button></div>
+      <div className="wiz-nav">
+        <button className="btn primary" type="submit" disabled={busy}>{unchanged && hasPin ? 'המשך' : 'שמור והמשך'}</button>
+        <button className="btn" type="button" onClick={back}>חזרה</button>
+      </div>
     </form>
   );
 }

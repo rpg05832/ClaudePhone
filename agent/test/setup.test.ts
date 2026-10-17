@@ -53,6 +53,17 @@ test('אשף: טלפונים, PIN, פרויקטים, העדפות, ומצב הג
   // שמירה בלי PIN חדש משאירה את הקיים
   assert.equal((await api.handle('POST', '/phones', { phones: ['0501234567'] })).code, 200);
   assert.ok(verifyPin('4321', loadPinHash(cfg.phones.pinHashFile)!));
+  // חזרה לאשף כשכבר יש מספרים: משאירים את הקיימים (לפי מיקום, בלי לשלוח אותם), מוסיפים, ומסירים
+  assert.equal((await api.handle('POST', '/phones', { keep: [0], phones: ['0521112222'] })).code, 200);
+  assert.deepEqual(cfg.phones.allowed, ['0501234567', '0521112222']);
+  assert.equal((await api.handle('POST', '/phones', { keep: [1], phones: [] })).code, 200);          // הסרת הראשון
+  assert.deepEqual(cfg.phones.allowed, ['0521112222']);
+  assert.equal((await api.handle('POST', '/phones', { keep: [], phones: [] })).code, 400);           // לא נשאר אף מספר
+  assert.equal((await api.handle('POST', '/phones', { keep: [0, 7, -1, 'x'], phones: ['0521112222', ''] })).code, 200);  // מיקומים לא קיימים מתעלמים, כפילות מתאחדת
+  assert.deepEqual(cfg.phones.allowed, ['0521112222']);
+  assert.equal((await api.handle('POST', '/phones', { keep: [0], phones: ['12'] })).code, 400);     // מספר לא תקין לא נבלע בשקט
+  assert.deepEqual(cfg.phones.allowed, ['0521112222']);
+  assert.equal((await api.handle('POST', '/phones', { phones: ['0501234567'] })).code, 200);
 
   const parent = join(root, 'projects');
   const extra = join(root, 'existing'); mkdirSync(extra);
