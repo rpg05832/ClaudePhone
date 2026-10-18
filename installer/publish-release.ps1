@@ -30,13 +30,14 @@ foreach ($f in $files) { if (!(Test-Path (Join-Path $out $f))) { throw "חסר �
 
 $H = @('-H', "Authorization: Bearer $token", '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28')
 function Api($method, $url, $body) {
-  $args = @('-sS', '-X', $method) + $H
+  $curlArgs = @('-sS', '-X', $method) + $H
+  $tmp = $null
   if ($body -ne $null) {
     $tmp = [IO.Path]::GetTempFileName()
     [IO.File]::WriteAllText($tmp, ($body | ConvertTo-Json -Depth 5 -Compress), (New-Object Text.UTF8Encoding $false))
-    $args += @('-H', 'Content-Type: application/json', '--data-binary', "@$tmp")
+    $curlArgs += @('-H', 'Content-Type: application/json', '--data-binary', "@$tmp")
   }
-  $r = & curl.exe @args $url
+  $r = & curl.exe @curlArgs $url
   if ($tmp) { Remove-Item $tmp -ErrorAction SilentlyContinue }
   if ($LASTEXITCODE -ne 0) { throw "הבקשה ל-GitHub נכשלה: $url" }
   $j = $r | ConvertFrom-Json
@@ -45,8 +46,9 @@ function Api($method, $url, $body) {
 }
 
 $me = Api GET 'https://api.github.com/user' $null
-$repo = Api GET "https://api.github.com/repos/$Repo" $null
-if (-not $repo.permissions.push) { throw "לחשבון $($me.login) אין הרשאת כתיבה למאגר $Repo" }
+# (לא $repo: ב-PowerShell זה אותו משתנה כמו הפרמטר $Repo, שמוגדר כמחרוזת)
+$repoInfo = Api GET "https://api.github.com/repos/$Repo" $null
+if (-not $repoInfo.permissions.push) { throw "לחשבון $($me.login) אין הרשאת כתיבה למאגר $Repo" }
 Write-Host "מחובר כ-$($me.login) למאגר $Repo"
 
 # גרסה קיימת עם אותו תג: עוצרים (למחוק ב-GitHub קודם, או לבחור מספר גרסה אחר)
