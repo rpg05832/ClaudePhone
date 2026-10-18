@@ -22,7 +22,13 @@
    ```
    נוצרים `ClaudePhone-linux-x64-0.6.3.tar.gz`, `ClaudePhone-linux-arm64-0.6.3.tar.gz`, קובצי `.sha256` שלהם, ו-`install.sh`.
 2. שומרים ודוחפים את הקוד: `git add -A`, `git commit -m "גרסה 0.6.3"`, `git push`.
-3. ב-GitHub: לשונית Releases, "Draft a new release".
+3. מפרסמים בפקודה אחת (יוצרת טיוטה, מעלה את 7 הקבצים, ומפרסמת):
+   ```
+   powershell -ExecutionPolicy Bypass -File installer\publish-release.ps1 -Version 0.6.3
+   ```
+   דורש פעם אחת טוקן גישה של GitHub בקובץ `%LOCALAPPDATA%\ClaudePhone\github-token.txt` (מחוץ למאגר): ב-GitHub, Settings, Developer settings, Fine-grained tokens, עם גישה למאגר הזה בלבד והרשאת Contents: Read and write. גוף ההודעה נלקח מ-`docs\release-notes-<גרסה>.md` (בלי שורת הכותרת). אם התג כבר קיים, הסקריפט עוצר.
+
+   או ידנית, ב-GitHub: לשונית Releases, "Draft a new release".
    - Tag: `v0.6.3` (Create new tag)
    - Title: `גרסה 0.6.3`
    - בתיאור: מה חדש (יוצג בלוח הבקרה לפני העדכון)
