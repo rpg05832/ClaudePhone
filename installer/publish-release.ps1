@@ -1,4 +1,4 @@
-# פרסום גרסה ב-GitHub Releases: יוצר את הגרסה כטיוטה, מעלה את 7 הקבצים מ-installer\output, ומפרסם.
+﻿# פרסום גרסה ב-GitHub Releases: יוצר את הגרסה כטיוטה, מעלה את 7 הקבצים מ-installer\output, ומפרסם.
 #
 #   powershell -ExecutionPolicy Bypass -File installer\publish-release.ps1 -Version 0.7.4
 #
