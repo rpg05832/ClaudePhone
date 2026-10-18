@@ -1,10 +1,13 @@
-// תמלול מקומי: תהליך Python קבוע עם faster-whisper + ivrit-ai (נמדד בשלב 0: פי 5 מזמן אמת).
-// ההקלטות לא יוצאות מהמחשב. ממשק אחד, כך שאפשר להחליף בעתיד לספק אחר.
+// תמלול. שני מנועים מאחורי ממשק אחד (SmartTranscriber):
+// - Claude (ברירת המחדל מ-0.7.4): שירות ההכתבה של Claude, עם ההתחברות של Claude Code (claude.ts). ההקלטה נשלחת ל-Anthropic.
+// - ivrit-ai במחשב: תהליך Python קבוע עם faster-whisper (נמדד בשלב 0: פי 5 מזמן אמת). ההקלטה לא יוצאת מהמחשב.
+// כל אחד הוא הגיבוי של השני.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import { log } from '../log.ts';
 import { normalizeSpelled } from './normalize.ts';
+import { looksStuck } from './claude.ts';
 
 export interface Transcriber { transcribe(path: string): Promise<string>; stop(): void; }
 
@@ -74,4 +77,77 @@ export class WhisperTranscriber implements Transcriber {
   }
 
   stop(): void { this.child?.kill(); }
+}
+
+/** 'claude': שירות ההכתבה של Claude, ו-ivrit-ai כגיבוי. 'local': ivrit-ai במחשב, ו-Claude כגיבוי. */
+export type SttEngine = 'claude' | 'local';
+
+/**
+ * בוחר מנוע תמלול לפי ההגדרה (נקראת בכל תמלול, כך ששינוי בלוח חל מיד), ועובר לשני כשהראשון נכשל,
+ * מחזיר טקסט ריק, או (ב-Claude) נתקע על חזרה. כשאין גיבוי: שגיאה, או הטקסט של Claude כמו שהוא (המשתמש שומע אותו לאישור).
+ */
+export class SmartTranscriber implements Transcriber {
+  /** המנוע שתמלל לאחרונה (ללוח הבקרה) */
+  lastEngine: SttEngine | null = null;
+  constructor(
+    private engine: () => SttEngine,
+    private claude: { available(): boolean; transcribeWav(buf: Buffer): Promise<{ text: string; seconds: number }> },
+    private local: { transcribe(path: string): Promise<string>; warmup?(): Promise<void>; stop(): void; ready: boolean },
+    private readFile: (path: string) => Buffer,
+    private localInstalled: () => boolean,
+  ) {}
+
+  /** מוכן לתמלל: Claude מחובר, או ivrit-ai טעון. */
+  get ready(): boolean { return this.engine() === 'claude' ? this.claude.available() || this.local.ready : this.local.ready || this.claude.available(); }
+
+  status(): { ok: boolean; engine: SttEngine; detail: string } {
+    const e = this.engine();
+    const claudeOk = this.claude.available();
+    const local = this.local.ready ? 'ivrit-ai טעון' : this.localInstalled() ? 'ivrit-ai מותקן' : 'ivrit-ai לא מותקן';
+    if (e === 'claude') return { ok: claudeOk || this.local.ready, engine: e, detail: claudeOk ? `Claude מחובר · גיבוי: ${local}` : `אין התחברות של Claude Code · ${local}` };
+    return { ok: this.local.ready || claudeOk, engine: e, detail: this.local.ready ? `ivrit-ai טעון · גיבוי: ${claudeOk ? 'Claude' : 'אין'}` : `${local}${claudeOk ? ' · גיבוי: Claude' : ''}` };
+  }
+
+  async warmup(): Promise<void> { if (this.engine() === 'local' && this.localInstalled()) await this.local.warmup?.(); }
+
+  private async viaClaude(path: string): Promise<{ text: string; stuck: boolean }> {
+    const t0 = Date.now();
+    const r = await this.claude.transcribeWav(this.readFile(path));
+    const stuck = looksStuck(r.text, r.seconds);
+    log('stt', `Claude תמלל ${r.seconds.toFixed(1)} שניות אודיו ב-${((Date.now() - t0) / 1000).toFixed(1)} שניות${stuck ? ' (נתקע על חזרה)' : ''}`);
+    return { text: r.text, stuck };
+  }
+
+  async transcribe(path: string): Promise<string> {
+    const first = this.engine();
+    const localOk = this.localInstalled();
+    if (first === 'claude' && this.claude.available()) {
+      let fallbackText = '';
+      try {
+        const r = await this.viaClaude(path);
+        if (r.text && !r.stuck) { this.lastEngine = 'claude'; return normalizeSpelled(r.text); }
+        fallbackText = r.stuck ? r.text : '';
+        if (!localOk) { this.lastEngine = 'claude'; return normalizeSpelled(r.text); }
+        log('stt', r.text ? 'עובר ל-ivrit-ai (התמלול של Claude נתקע)' : 'עובר ל-ivrit-ai (Claude לא זיהה דיבור)');
+      } catch (e) {
+        if (!localOk) throw e;
+        log('stt', `עובר ל-ivrit-ai: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      try { const t = await this.local.transcribe(path); this.lastEngine = 'local'; return t; }
+      catch (e) { if (fallbackText) { this.lastEngine = 'claude'; return normalizeSpelled(fallbackText); } throw e; }
+    }
+    if (localOk) {
+      try { const t = await this.local.transcribe(path); this.lastEngine = 'local'; return t; }
+      catch (e) {
+        if (!this.claude.available()) throw e;
+        log('stt', `עובר לתמלול של Claude: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (!this.claude.available()) throw new Error('אין מנוע תמלול זמין: אין התחברות של Claude Code, ו-ivrit-ai לא מותקן');
+    const r = await this.viaClaude(path);
+    this.lastEngine = 'claude';
+    return normalizeSpelled(r.text);
+  }
+
+  stop(): void { this.local.stop(); }
 }

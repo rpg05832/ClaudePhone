@@ -1,7 +1,7 @@
 // שלב 4: פעולות מלוח הבקרה. עוברות דרך אותו תור, אותן נעילות ואותו מתווך הרשאות כמו מהטלפון.
 // ההגנה (אסימון מקומי, Origin, כותרת X-CP) נעשית בשרת הלוח לפני שמגיעים לכאן.
 import type { Store, EditMode } from '../store/db.ts';
-import { VOICES, MODELS, EFFORTS, READBACKS } from '../store/db.ts';
+import { VOICES, MODELS, EFFORTS, READBACKS, STT_ENGINES } from '../store/db.ts';
 import type { Tasks } from '../store/tasks.ts';
 import type { ConversationIndex } from '../history/conversations.ts';
 import type { DecideResult } from '../claude/broker.ts';
@@ -53,6 +53,8 @@ export interface ActionDeps {
   scanMcp?: () => Promise<McpScan>;
   /** רשימת הדפדפנים שמחוברים ל-Claude in Chrome (הרצה קצרה של Claude עם --chrome) */
   listChrome?: () => Promise<ChromeBrowser[]>;
+  /** אחרי מעבר ל-ivrit-ai: טעינת המודל מראש */
+  sttChanged?: () => void;
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -271,6 +273,7 @@ export class DashboardActions {
       if (body?.effort !== undefined) { if (!EFFORTS.some(m => m.id === body.effort)) return bad('רמת חשיבה לא תקינה'); this.d.store.setSetting('effort', body.effort); }
       if (body?.model !== undefined) { if (!MODELS.some(m => m.id === body.model)) return bad('מודל לא תקין'); this.d.store.setSetting('model', body.model); }
       if (body?.readback !== undefined) { if (!READBACKS.some(m => m.id === body.readback)) return bad('ערך לא תקין'); this.d.store.setSetting('readback', body.readback); }
+      if (body?.stt !== undefined) { if (!STT_ENGINES.some(m => m.id === body.stt)) return bad('מנוע תמלול לא תקין'); this.d.store.setSetting('stt', body.stt); if (body.stt === 'local') this.d.sttChanged?.(); }
       const after = this.d.store.getSettings();
       let warning: string | null = null;
       if ((after.voice !== before.voice || after.rate !== before.rate) && this.d.applyVoice) {

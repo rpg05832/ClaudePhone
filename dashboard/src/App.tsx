@@ -87,7 +87,7 @@ function LineStrip({ ov }: { ov: Overview | null }) {
     { name: 'ימות המשיח', ok: h.yemot?.ok ?? null, detail: h.yemot?.ok ? `עודכנה ${when(h.yemot.updatedAt)}` : 'ממתין' },
     { name: 'מנהרה', ok: h.tunnel?.ok ?? null, detail: h.tunnel?.ok ? `פעילה ${when(h.tunnel.since)}` : h.tunnel?.error ?? 'מתחברת' },
     { name: 'המחשב', ok: live, detail: live ? 'הסוכן פועל' : 'אין חיבור לסוכן' },
-    { name: 'תמלול', ok: h.stt?.ok ? true : null, detail: h.stt?.ok ? 'מוכן' : 'נטען' },
+    { name: 'תמלול', ok: h.stt?.ok ? true : null, detail: h.stt?.ok ? (h.stt?.engine === 'local' ? 'ivrit-ai' : 'Claude') : 'לא זמין' },
     { name: 'Claude', ok: h.claude ? true : null, detail: h.claude?.busyWith ? 'עובד על משימה' : 'פנוי' },
   ];
   const state = (ok: boolean | null) => ok === null ? 'wait' : ok ? 'ok' : 'down';
@@ -498,7 +498,7 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
     ['הסוכן', true, `${h.agent?.version ? 'גרסה ' + h.agent.version + ' · ' : ''}פועל מ-${full(h.agent?.startedAt)} · Node ${h.agent?.node ?? ''} · Agent SDK ${h.agent?.sdk ?? '?'}`],
     ['מנהרת Cloudflare', h.tunnel?.ok, h.tunnel?.ok ? `${h.tunnel.url}` : h.tunnel?.error ?? 'לא מחוברת'],
     ['ימות המשיח', h.yemot?.ok, h.yemot?.ok ? `שלוחה ${h.yemot.extension} עודכנה ${when(h.yemot.updatedAt)}` : 'השלוחה לא עודכנה'],
-    ['תמלול (ivrit-ai)', h.stt?.ok, h.stt?.ok ? 'המודל טעון' : 'המודל נטען'],
+    ['תמלול', h.stt?.ok, h.stt?.detail ?? (h.stt?.ok ? 'מוכן' : 'לא זמין')],
     ['Claude Code', true, `${h.claude?.claudeCodeVersion ? 'גרסה ' + h.claude.claudeCodeVersion : ''}${h.claude?.busyWith ? ' · עובד על משימה' : ' · פנוי'}`],
   ];
   return (
@@ -560,7 +560,13 @@ function SettingsForm({ s }: { s: Overview['settings'] }) {
             <option value="full">התשובה המלאה של Claude (אפשר לקטוע בהקשה)</option>
             <option value="summary">הסיכום הקצר בלבד</option>
           </select></label>
+        <label className="field short"><span>תמלול ההקלטות</span>
+          <select value={s.stt ?? 'claude'} onChange={e => save({ stt: e.target.value })}>
+            <option value="claude">Claude (שירות ההכתבה, בלי התקנה)</option>
+            <option value="local">ivrit-ai במחשב</option>
+          </select></label>
       </div>
+      <div className="hint">תמלול: כשהמנוע שנבחר נכשל, לא מזהה דיבור, או (ב-Claude) נתקע על חזרה, ההקלטה מתומללת אוטומטית במנוע השני, אם הוא זמין. ivrit-ai זמין רק אם הותקן באשף ההגדרה.</div>
       <label className="check"><input type="checkbox" checked={s.notify === 'on'} onChange={e => save({ notify: e.target.checked ? 'on' : 'off' })} /> צינתוק לטלפון כשמשימה מהטלפון מסתיימת או מחכה לאישור</label>
       {msg && <div className={msg.ok ? 'hint' : 'error'}>{msg.text}</div>}
     </div>

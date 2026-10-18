@@ -202,7 +202,7 @@ test('הגדרות: בחירת קול ומהירות מוחלת על השלוח�
   await c.send('3');
   await c.send('3');
   assert.deepEqual(voiceCalls.at(-1), ['Sivan', 4]);
-  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full' });
+  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude' });
 });
 
 function doneTask(tasks: Tasks, projId: string, resultText: string, resultSummary: string) {
@@ -340,6 +340,19 @@ test('בקשה שפג תוקפה לא מוצגת ולא מאושרת', async () 
   await c.send();
   assert.doesNotMatch(await c.send(PIN), /מבקש אישור/);
   assert.equal(store.decidePermission(req.id, 'allow', 'phone'), 'expired');
+});
+
+test('הגדרות: מקש 8 בוחר את מנוע התמלול, והבחירה נשמרת ומוקראת', async () => {
+  const { flow, store } = setup();
+  const c = call(flow);
+  await c.send(); await c.send(PIN);
+  assert.match(await c.send('7'), /התמלול: Claude.*למנוע התמלול 8/);
+  assert.match(await c.send('8'), /לתמלול בשירות של קלוד.*1.*במחשב.*2/);
+  assert.match(await c.send('2'), /מעכשיו ההקלטות מתומללות במחשב/);
+  assert.equal(store.getSettings().stt, 'local');
+  assert.match(await c.send('8'), /לתמלול בשירות של קלוד/);
+  assert.match(await c.send('1'), /מתומללות בשירות של קלוד/);
+  assert.equal(store.getSettings().stt, 'claude');
 });
 
 test('הגדרות: כיבוי והפעלה של צינתוקים', async () => {

@@ -157,7 +157,7 @@ export async function systemReport(opts: { dataDir: string; cloudflaredPath: str
 
   let freeGb = 0;
   try { const s = statfsSync(opts.dataDir); freeGb = Math.round((s.bavail * s.bsize) / 1e9 * 10) / 10; } catch { /* */ }
-  items.push({ id: 'disk', name: 'מקום פנוי בדיסק', required: true, state: freeGb >= 4 ? 'ok' : 'old', detail: `${freeGb} GB פנויים (נדרשים כ-4 GB למודל התמלול ולרכיבים)` });
+  items.push({ id: 'disk', name: 'מקום פנוי בדיסק', required: true, state: freeGb >= 1 ? 'ok' : 'old', detail: `${freeGb} GB פנויים (נדרש כ-1 GB; עוד כ-2 GB אם מתקינים את גיבוי התמלול ivrit-ai)` });
 
   items.push({ id: 'node', name: 'Node.js', required: true, state: 'ok', detail: `${process.version} (כלול בהתקנה)` });
 
@@ -166,10 +166,11 @@ export async function systemReport(opts: { dataDir: string; cloudflaredPath: str
   items.push({ id: 'claudeAuth', name: 'התחברות ל-Claude', required: true, state: auth.loggedIn ? 'ok' : 'missing', detail: auth.detail });
 
   const py = await findPython(opts.pythonConfigured);
-  items.push({ id: 'python', name: 'Python (לתמלול)', required: true, state: py.path ? 'ok' : 'missing', detail: py.path ? `גרסה ${py.version}` : 'לא נמצא Python 3.10 ומעלה', installable: !py.path, sizeMb: isWin ? 26 : 32 });
-  items.push({ id: 'fasterWhisper', name: 'רכיב התמלול faster-whisper', required: true, state: py.fasterWhisper ? 'ok' : 'missing', detail: py.fasterWhisper ? `גרסה ${py.fasterWhisper}` : 'לא מותקן', installable: !py.fasterWhisper, sizeMb: 120 });
+  // 0.7.4: התמלול נעשה דרך Claude (ההתחברות של Claude Code). ivrit-ai במחשב הוא גיבוי, ולכן שלושת הרכיבים שלו רשות.
+  items.push({ id: 'python', name: 'Python (לגיבוי התמלול, רשות)', required: false, state: py.path ? 'ok' : 'missing', detail: py.path ? `גרסה ${py.version}` : 'לא נמצא Python 3.10 ומעלה', installable: !py.path, sizeMb: isWin ? 26 : 32 });
+  items.push({ id: 'fasterWhisper', name: 'רכיב התמלול faster-whisper (גיבוי, רשות)', required: false, state: py.fasterWhisper ? 'ok' : 'missing', detail: py.fasterWhisper ? `גרסה ${py.fasterWhisper}` : 'לא מותקן', installable: !py.fasterWhisper, sizeMb: 120 });
   const model = modelPresent();
-  items.push({ id: 'model', name: 'מודל תמלול עברית (ivrit-ai)', required: true, state: model ? 'ok' : 'missing', detail: model ? 'הורד' : 'לא הורד', installable: !model, sizeMb: 1600 });
+  items.push({ id: 'model', name: 'מודל תמלול עברית ivrit-ai (גיבוי, רשות)', required: false, state: model ? 'ok' : 'missing', detail: model ? 'הורד' : 'לא הורד', installable: !model, sizeMb: 1600 });
   const cf = existsSync(opts.cloudflaredPath);
   items.push({ id: 'cloudflared', name: 'רכיב המנהרה (cloudflared)', required: true, state: cf ? 'ok' : 'missing', detail: cf ? 'קיים' : 'חסר', installable: !cf, sizeMb: 60 });
 

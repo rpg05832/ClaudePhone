@@ -34,7 +34,15 @@ export interface AgentSettings {
   effort: EffortChoice;
   /** מה מוקרא בטלפון כשמשימה מסתיימת: התשובה המלאה של Claude, או רק הסיכום הקצר שבראשה */
   readback: ReadbackChoice;
+  /** מנוע התמלול: שירות ההכתבה של Claude (ivrit-ai כגיבוי), או ivrit-ai במחשב (Claude כגיבוי) */
+  stt: SttChoice;
 }
+
+export type SttChoice = 'claude' | 'local';
+export const STT_ENGINES: { id: SttChoice; name: string; spoken: string }[] = [
+  { id: 'claude', name: 'Claude (שירות ההכתבה, בלי התקנה)', spoken: 'Claude' },
+  { id: 'local', name: 'ivrit-ai במחשב', spoken: 'איברית איי איי במחשב' },
+];
 
 export type ReadbackChoice = 'full' | 'summary';
 export const READBACKS: { id: ReadbackChoice; name: string; spoken: string }[] = [
@@ -61,7 +69,7 @@ export const MODELS: { id: ModelChoice; name: string; spoken: string }[] = [
   { id: 'haiku', name: 'Haiku (מהיר וחסכוני)', spoken: 'הייקו' },
 ];
 
-export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default', readback: 'full' };
+export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude' };
 
 export const DEFAULT_PERMISSIONS: ProjectPermissions = { editInsideProject: true, runCommands: false };
 
@@ -98,6 +106,7 @@ export class Store {
       model: MODELS.some(x => x.id === m.model) ? m.model : 'default',
       effort: EFFORTS.some(x => x.id === m.effort) ? m.effort : 'default',
       readback: m.readback === 'summary' ? 'summary' : 'full',
+      stt: m.stt === 'local' ? 'local' : 'claude',
     };
   }
 

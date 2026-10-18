@@ -15,7 +15,8 @@ import { PhoneFlow } from './phone/flow.ts';
 import { startPhoneServer } from './phone/server.ts';
 import { startQuickTunnel } from './phone/tunnel.ts';
 import { YemotApi } from './phone/yemot-api.ts';
-import { WhisperTranscriber } from './stt/transcriber.ts';
+import { WhisperTranscriber, SmartTranscriber } from './stt/transcriber.ts';
+import { ClaudeSpeechToText } from './stt/claude.ts';
 import { Worker } from './claude/worker.ts';
 import { createProjectFromPhone } from './projects.ts';
 import { PinLockout, loadPinHash } from './util/pin.ts';
@@ -141,15 +142,22 @@ if (setupMode) {
 const token = readSecretFile(cfg.yemot.tokenFile)!;
 const yemot = new YemotApi(token, cfg.yemot.apiBase);
 // Python לתמלול: הנתיב מההגדרות, ואם הוא לא קיים (או רק "python" ו-PATH שבור) מחפשים ושומרים את הנתיב המלא
-if (!isAbs(cfg.stt.python) || !existsSync(cfg.stt.python)) {
+// (גם כשהתמלול הוא של Claude: ivrit-ai משמש גיבוי, ולכן צריך לדעת אם הוא מותקן)
+let localSttInstalled = false;
+{
   const py = await findPython(cfg.stt.python);
+  localSttInstalled = !!(py.path && py.fasterWhisper && existsSync(cfg.stt.script));
   if (py.path && py.path !== cfg.stt.python) {
     cfg.stt.python = py.path;
     saveUserConfig({ stt: { python: py.path } });
     log('stt', `נמצא Python: ${py.path}${py.fasterWhisper ? '' : ' (בלי faster-whisper)'}`);
-  } else if (!py.path) log('stt', 'לא נמצא Python מתאים. אפשר להתקין אותו מאשף ההגדרה');
+  } else if (!py.path) log('stt', 'לא נמצא Python מתאים לתמלול במחשב (ivrit-ai). התמלול ייעשה דרך Claude');
 }
-const stt = new WhisperTranscriber(cfg.stt.python, cfg.stt.script, cfg.stt.model, cfg.stt.timeoutSeconds);
+const { query } = await import('@anthropic-ai/claude-agent-sdk');
+const whisper = new WhisperTranscriber(cfg.stt.python, cfg.stt.script, cfg.stt.model, cfg.stt.timeoutSeconds);
+const claudeStt = new ClaudeSpeechToText({ query: query as any });
+const stt = new SmartTranscriber(() => store.getSettings().stt, claudeStt, whisper, (p) => readFileSync(p), () => localSttInstalled);
+log('stt', `מנוע התמלול: ${store.getSettings().stt === 'claude' ? 'Claude' : 'ivrit-ai'} · ${stt.status().detail}`);
 stt.warmup().catch(e => logError('stt', e, 'warmup'));
 
 // ---------- התראות ----------
@@ -219,7 +227,6 @@ function openResumeTerminal(conversationId: string, cwd: string): void {
 }
 function openFolderWindow(path: string): void { openFolder(path); }
 
-const { query } = await import('@anthropic-ai/claude-agent-sdk');
 /** חיבורי MCP שפתוחים לטלפון, עם שמות להקראה ורשימת כל השרתים המוכרים (להסתרת השאר). */
 function mcpPolicy() {
   const chromeOn = !!cfg.mcp.chrome?.enabled;
@@ -284,6 +291,7 @@ const flow = new PhoneFlow({
     await yemot.setApiExtension(cfg.yemot.chatExtension, currentUrl + cfg.phoneServer.path, { voice, rate });
   },
   mcpConnections: () => { const p = mcpPolicy(); return p ? p.enabled.map(s => p.labels[s] ?? s) : []; },
+  sttChanged: () => { if (localSttInstalled) whisper.warmup().catch(e => logError('stt', e, 'warmup')); },
 });
 
 flowRef = flow;
@@ -322,6 +330,7 @@ const dash = startDashboard({
     openLive: (projectId) => openLiveTerminal(projectId),
     openTerminal: (id, cwd) => openResumeTerminal(id, cwd),
     openFolder: (p) => openFolderWindow(p),
+    sttChanged: () => { if (localSttInstalled) whisper.warmup().catch(e => logError('stt', e, 'warmup')); },
     scanMcp: () => discoverMcp(query as any, cfg.projects.newProjectsParent && existsSync(cfg.projects.newProjectsParent) ? cfg.projects.newProjectsParent : AGENT_ROOT),
     listChrome: () => listChromeBrowsers(query as any, cfg.projects.newProjectsParent && existsSync(cfg.projects.newProjectsParent) ? cfg.projects.newProjectsParent : AGENT_ROOT),
     updater, location,
@@ -339,7 +348,7 @@ const dash = startDashboard({
     agent: { ok: true, startedAt: state.startedAt, node: process.version, sdk: sdkVersion, version: appVersion },
     tunnel: { ok: !!currentUrl, url: currentUrl || null, since: state.tunnelSince, error: state.lastTunnelError },
     yemot: { ok: !!state.extensionUpdatedAt, extension: cfg.yemot.chatExtension, updatedAt: state.extensionUpdatedAt },
-    stt: { ok: stt.ready, model: cfg.stt.model },
+    stt: { ...stt.status(), model: cfg.stt.model, last: stt.lastEngine },
     claude: { ok: true, busyWith: worker.busyWith, claudeCodeVersion: history.list().find(h => h.version)?.version ?? null },
     phone: { activeCalls: flow.activeCalls() },
     quiet: quietState(new Date(), quiet),

@@ -173,7 +173,8 @@ function Checks({ report, checking, err, rerun, next, back }: { report: Report |
 // ---------- 3. התקנת רכיבים ----------
 function Install({ report, rerun, next, back }: { report: Report | null; rerun: () => void; next: () => void; back: () => void }) {
   const missing = report?.items.filter(i => i.installable && i.state !== 'ok') ?? [];
-  const [sel, setSel] = useState<Set<string>>(() => new Set(missing.map(m => m.id)));
+  // רכיבי חובה מסומנים מראש; הגיבוי לתמלול (ivrit-ai) רק בבחירה
+  const [sel, setSel] = useState<Set<string>>(() => new Set(missing.filter(m => m.required).map(m => m.id)));
   const [jobId, setJobId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const job = useJob(jobId, () => rerun());
@@ -201,7 +202,8 @@ function Install({ report, rerun, next, back }: { report: Report | null; rerun: 
               </li>
             ))}
           </ul>
-          <p className="hint">סה"כ להורדה: כ-{total >= 1000 ? (total / 1000).toFixed(1) + ' GB' : total + ' MB'}. מודל התמלול הוא הגדול; ההורדה יכולה לקחת זמן.</p>
+          <p className="hint">סה"כ להורדה: כ-{total >= 1000 ? (total / 1000).toFixed(1) + ' GB' : total + ' MB'}.</p>
+          <p className="hint"><b>תמלול:</b> ההקלטות מתומללות בשירות ההכתבה של Claude, עם ההתחברות של Claude Code, בלי להתקין כלום. הרכיבים המסומנים "רשות" (Python, faster-whisper ומודל ivrit-ai, כ-1.7 GB) הם גיבוי שמתמלל במחשב עצמו כשהשירות של Claude לא עונה או מתבלבל, ומאפשרים לבחור בהגדרות תמלול במחשב בלבד. מומלץ אם יש מקום ואינטרנט מהיר.</p>
         </>
       ) : (
         <ul className="checks">
@@ -593,7 +595,7 @@ function Finish({ status, back }: { status: Status | null; back: () => void }) {
             <li>{ok(phase === 'running')}<b>הסוכן</b><span>{phase === 'running' ? 'פועל' : phase === 'starting' ? 'עולה…' : 'לא עלה'}</span></li>
             <li>{ok(health?.tunnel?.ok ?? null)}<b>חיבור לאינטרנט (מנהרה)</b><span>{health?.tunnel?.ok ? 'פעיל' : health?.tunnel?.error ?? 'מתחבר…'}</span></li>
             <li>{ok(health?.yemot?.ok ?? null)}<b>השלוחה בימות</b><span>{health?.yemot?.ok ? `שלוחה ${health.yemot.extension} מחוברת` : 'מתעדכנת…'}</span></li>
-            <li>{ok(health?.stt?.ok ?? null)}<b>תמלול</b><span>{health?.stt?.ok ? 'מוכן' : 'נטען (בפעם הראשונה עד דקה)…'}</span></li>
+            <li>{ok(health?.stt?.ok ?? null)}<b>תמלול</b><span>{health?.stt?.detail ?? (health?.stt?.ok ? 'מוכן' : 'נטען (בפעם הראשונה עד דקה)…')}</span></li>
           </ul>
           {err && <div className="error">{err}</div>}
           {phase === 'running' && health?.yemot?.ok && (

@@ -7,7 +7,7 @@ import type { Task, Project, Conversation, PermissionRequest } from '@claude-pho
 import type { DecideResult } from '../claude/broker.ts';
 import type { ConversationEntry } from '../history/conversations.ts';
 import { r, san, EMPTY_VALUE, type YemotResponse, type YemotQuery } from './response.ts';
-import { VOICES, MODELS, EFFORTS, READBACKS, type Store, type EditMode, type ModelChoice, type EffortChoice, type ReadbackChoice } from '../store/db.ts';
+import { VOICES, MODELS, EFFORTS, READBACKS, STT_ENGINES, type Store, type EditMode, type ModelChoice, type EffortChoice, type ReadbackChoice } from '../store/db.ts';
 import { cleanForSpeech } from '../claude/runner.ts';
 
 const MODE_NAMES: Record<EditMode, string> = {
@@ -52,6 +52,8 @@ export interface FlowDeps {
   lastAnswer?: (conversationId: string) => string | null;
   /** חיבורי MCP שפתוחים למשימות מהטלפון (שמות להקראה), להודעה בהגדרות. */
   mcpConnections?: () => string[];
+  /** אחרי מעבר למנוע תמלול מקומי: טעינת המודל מראש */
+  sttChanged?: () => void;
   /** עיכוב (נדרס בבדיקות). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -64,7 +66,7 @@ type Screen =
   | 'newProjMode' | 'newProjName' | 'newProjConfirm'
   | 'record' | 'transcribing' | 'confirmTranscript'
   | 'waiting'
-  | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback'
+  | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback' | 'settingsStt'
   | 'results' | 'resultMenu'
   | 'activeList' | 'activeMenu' | 'stopConfirm'
   | 'approval' | 'approvalText' | 'explainRecorded' | 'explainTranscribing' | 'explainConfirm'
@@ -210,6 +212,7 @@ export class PhoneFlow {
       case 'taskModel': return this.onTaskModel(c, input);
       case 'settingsEffort': return this.onSettingsEffort(c, input);
       case 'settingsReadback': return this.onSettingsReadback(c, input);
+      case 'settingsStt': return this.onSettingsStt(c, input);
       case 'waiting': return this.onWaiting(c, input);
       case 'results': return this.onResults(c);
       case 'resultMenu': return this.onResultMenu(c, input);
@@ -835,12 +838,17 @@ export class PhoneFlow {
     const modelName = MODELS.find(m => m.id === st.model)?.spoken ?? '';
     const effortName = EFFORTS.find(m => m.id === st.effort)?.spoken ?? '';
     const readbackName = READBACKS.find(m => m.id === st.readback)?.spoken ?? '';
+    const sttName = STT_ENGINES.find(m => m.id === st.stt)?.spoken ?? '';
     const conns = this.d.mcpConnections?.() ?? [];
-    res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}${conns.length ? `. חיבורים פתוחים למשימות: ${conns.join(', ')}` : ''}`);
-    return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. למה מוקרא בסיום משימה 7. לחזרה 0`, this.next(c), { timeout: 20 });
+    res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}. התמלול: ${sttName}${conns.length ? `. חיבורים פתוחים למשימות: ${conns.join(', ')}` : ''}`);
+    return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. למה מוקרא בסיום משימה 7. למנוע התמלול 8. לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
   private async onSettings(c: CallState, input: string | undefined): Promise<YemotResponse> {
+    if (input === '8') {
+      c.screen = 'settingsStt';
+      return r().readDigits('לתמלול בשירות של קלוד, בלי התקנה, הקש 1. לתמלול במחשב עם איברית איי איי 2. כל אחד מהם משמש גיבוי לשני. לחזרה 0', this.next(c), { timeout: 20 });
+    }
     if (input === '7') {
       c.screen = 'settingsReadback';
       return r().readDigits('להקראת התשובה המלאה של קלוד הקש 1. להקראת הסיכום הקצר בלבד 2. לחזרה 0', this.next(c), { timeout: 20 });
@@ -893,6 +901,15 @@ export class PhoneFlow {
     c.resultMode = m.id;
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_readback', detail: m.id });
     return this.settingsScreen(c, m.id === 'full' ? 'מעכשיו בסיום משימה מוקראת התשובה המלאה. אפשר להקיש מקש בכל רגע כדי לקטוע' : 'מעכשיו בסיום משימה מוקרא הסיכום הקצר. בתפריט התוצאות מקש 4 משמיע את התשובה המלאה');
+  }
+
+  private onSettingsStt(c: CallState, input: string | undefined): YemotResponse {
+    const m = STT_ENGINES[Number(input) - 1];
+    if (!m) return this.settingsScreen(c);
+    this.d.store.setSetting('stt', m.id);
+    this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_stt', detail: m.id });
+    this.d.sttChanged?.();
+    return this.settingsScreen(c, m.id === 'claude' ? 'מעכשיו ההקלטות מתומללות בשירות של קלוד' : 'מעכשיו ההקלטות מתומללות במחשב. אם המודל לא מותקן, התמלול יישאר אצל קלוד');
   }
 
   private onSettingsEffort(c: CallState, input: string | undefined): YemotResponse {
