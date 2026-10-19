@@ -89,3 +89,12 @@ test('שגיאת התחברות מוצגת בלי פרטי סוד', async () => 
   await until(() => tasks.get(t.id)!.state === 'failed');
   assert.equal(tasks.get(t.id)!.error, 'החיבור של Claude במחשב פג. יש להתחבר מחדש במחשב');
 });
+
+test('שגיאת מכסה: הודעה ברורה בעברית, עם שעת האיפוס אם צוינה', async () => {
+  const { shortError } = await import('../src/claude/worker.ts');
+  assert.match(shortError("You've hit your limit · resets 3pm (Asia/Jerusalem)"), /הגעת למכסת השימוש.*בשעה 3pm/);
+  assert.match(shortError('Claude AI usage limit reached'), /הגעת למכסת השימוש/);
+  assert.doesNotMatch(shortError('429 rate limit'), /בשעה/);
+  assert.match(shortError('401 unauthorized'), /להתחבר מחדש/);
+  assert.equal(shortError('שגיאה אחרת'), 'שגיאה אחרת');
+});

@@ -313,6 +313,7 @@ export class DashboardActions {
       if (body?.notify !== undefined) { if (body.notify !== 'on' && body.notify !== 'off') return bad('ערך לא תקין'); this.d.store.setSetting('notify', body.notify); }
       if (body?.effort !== undefined) { if (!EFFORTS.some(m => m.id === body.effort)) return bad('רמת חשיבה לא תקינה'); this.d.store.setSetting('effort', body.effort); }
       if (body?.model !== undefined) { if (!MODELS.some(m => m.id === body.model)) return bad('מודל לא תקין'); this.d.store.setSetting('model', body.model); }
+      if (body?.cmdReadback !== undefined) { if (body.cmdReadback !== 'description' && body.cmdReadback !== 'full') return bad('ערך לא תקין'); this.d.store.setSetting('cmdReadback', body.cmdReadback); }
       if (body?.readback !== undefined) { if (!READBACKS.some(m => m.id === body.readback)) return bad('ערך לא תקין'); this.d.store.setSetting('readback', body.readback); }
       if (body?.stt !== undefined) { if (!STT_ENGINES.some(m => m.id === body.stt)) return bad('מנוע תמלול לא תקין'); this.d.store.setSetting('stt', body.stt); if (body.stt === 'local') this.d.sttChanged?.(); }
       const after = this.d.store.getSettings();

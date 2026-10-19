@@ -36,7 +36,11 @@ export interface AgentSettings {
   readback: ReadbackChoice;
   /** מנוע התמלול: שירות ההכתבה של Claude (ivrit-ai כגיבוי), או ivrit-ai במחשב (Claude כגיבוי) */
   stt: SttChoice;
+  /** הקראת בקשת אישור לפקודה: תיאור קצר בלבד (הפקודה במקש 3), או התיאור והפקודה במלואה */
+  cmdReadback: CmdReadbackChoice;
 }
+
+export type CmdReadbackChoice = 'description' | 'full';
 
 export type SttChoice = 'claude' | 'local';
 export const STT_ENGINES: { id: SttChoice; name: string; spoken: string }[] = [
@@ -69,7 +73,7 @@ export const MODELS: { id: ModelChoice; name: string; spoken: string }[] = [
   { id: 'haiku', name: 'Haiku (מהיר וחסכוני)', spoken: 'הייקו' },
 ];
 
-export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude' };
+export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude', cmdReadback: 'description' };
 
 export const DEFAULT_PERMISSIONS: ProjectPermissions = { editInsideProject: true, runCommands: false };
 
@@ -107,6 +111,7 @@ export class Store {
       effort: EFFORTS.some(x => x.id === m.effort) ? m.effort : 'default',
       readback: m.readback === 'summary' ? 'summary' : 'full',
       stt: m.stt === 'local' ? 'local' : 'claude',
+      cmdReadback: m.cmdReadback === 'full' ? 'full' : 'description',
     };
   }
 

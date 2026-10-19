@@ -218,8 +218,13 @@ export function liveSummary(r: { tool_name: string; description: string; input_p
   return `${r.description || r.tool_name}${preview ? `. הפקודה: ${preview}` : ''}`;
 }
 
-function shortError(s?: string): string {
+export function shortError(s?: string): string {
   const t = String(s ?? 'שגיאה לא ידועה');
   if (/auth|401|login|oauth/i.test(t)) return 'החיבור של Claude במחשב פג. יש להתחבר מחדש במחשב';
+  // מכסת השימוש נגמרה: הודעה ברורה, ואם Claude ציין מתי היא מתחדשת, זה נשמר (למשל "resets 3pm")
+  if (/usage limit|hit your limit|limit reached|rate.?limit|quota|\b429\b/i.test(t)) {
+    const when = t.match(/resets?\s*(?:at\s*)?([^\n.|·]{1,30})/i)?.[1]?.trim();
+    return `הגעת למכסת השימוש של Claude. המשימה לא בוצעה. אפשר לנסות שוב אחרי שהמכסה מתחדשת${when ? `, בשעה ${when}` : ''}`;
+  }
   return t.slice(0, 200);
 }

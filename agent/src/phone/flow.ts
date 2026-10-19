@@ -297,7 +297,7 @@ export class PhoneFlow {
     if (prefix) res.say(prefix);
     const pending = this.d.store.pendingPermissionRequests().length ? 'לבקשות שממתינות לך 6. ' : '';
     const live = this.d.liveSessions?.().length ? 'לשיחה הפתוחה במחשב 1. ' : '';
-    const more = this.d.allConversations ? (this.hasCloud() ? 'לשיחות נוספות 8. ' : 'לכל השיחות במחשב 8. ') : '';
+    const more = this.d.allConversations ? (this.hasCloud() ? 'לשיחות נוספות, ושיחות ענן 8. ' : 'לכל השיחות במחשב 8. ') : '';
     return res.readDigits(`${pending}${live}להמשך שיחה 2. לשיחה חדשה 3. לתוצאות 4. למשימות פעילות 5. להגדרות 7. ${more}להסבר על המערכת 9. לסיום 0`, this.next(c), { timeout: 20 });
   }
 
@@ -868,8 +868,17 @@ export class PhoneFlow {
       const opts = q.options.slice(0, 7).map((o, i) => `ל${o.label} הקש ${i + 1}`).join('. ');
       return res.readDigits(`${opts}. לתשובה בהקלטה 8. בהקלדה 9. לדילוג 0`, this.next(c), { timeout: 30 });
     }
-    res.say(`${head}. קלוד מבקש אישור: ${req.summary}`);
-    return res.readDigits('לאישור 1. לדחייה 2. להסבר בהקלטה 8. לשמיעה חוזרת 7. לדילוג 0', this.next(c), { timeout: 30 });
+    const brief = this.commandBrief(req);
+    res.say(`${head}. קלוד מבקש אישור: ${brief ?? req.summary}`);
+    return res.readDigits(`לאישור 1. לדחייה 2. ${brief ? 'לשמיעת הפקודה עצמה 3. ' : ''}להסבר בהקלטה 8. לשמיעה חוזרת 7. לדילוג 0`, this.next(c), { timeout: 30 });
+  }
+
+  /** בקשת פקודה במצב "תיאור בלבד": התיאור הקצר ש-Claude כתב, בלי הפקודה. null: מקריאים את הכל (מצב מלא, לא פקודה, או שאין תיאור). */
+  private commandBrief(req: PermissionRequest): string | null {
+    if (this.d.store.getSettings().cmdReadback !== 'description') return null;
+    if (req.toolName !== 'Bash' && req.toolName !== 'PowerShell') return null;
+    const desc = String(req.input?.description ?? '').trim();
+    return desc || null;
   }
 
   private async onApproval(c: CallState, input: string | undefined): Promise<YemotResponse> {
@@ -878,6 +887,9 @@ export class PhoneFlow {
     if (req.decision !== null || Date.parse(req.expiresAt) <= Date.now()) return this.afterApproval(c, req.decision ? 'הבקשה כבר טופלה' : 'פג תוקף הבקשה');
     if (input === '0') { c.skippedApprovals = [...(c.skippedApprovals ?? []), req.id]; return this.afterApproval(c); }
     if (input === '7') return this.presentApproval(c, req);
+    if (input === '3' && !this.isQuestion(req) && this.commandBrief(req)) {
+      return r().say(`הפקודה עצמה: ${req.summary.replace(/^.*?הפקודה: /s, '')}`).readDigits('לאישור 1. לדחייה 2. להסבר בהקלטה 8. לשמיעה חוזרת 7. לדילוג 0', this.next(c), { timeout: 30 });
+    }
     if (input === '8') return this.explainRecordScreen(c, this.isQuestion(req) ? 'answer' : 'deny');
 
     if (this.isQuestion(req)) {
@@ -1014,7 +1026,7 @@ export class PhoneFlow {
     }
     if (input === '1') {
       c.screen = 'settingsMode';
-      return r().readDigits('לקריאה בלבד 1. לשינויים עם אישור שלך לכל פקודה 2. לאישור אוטומטי של כל הפעולות 3. לחזרה 0', this.next(c), { timeout: 20 });
+      return r().readDigits(`לקריאה בלבד 1. לשינויים עם אישור שלך לכל פקודה 2. לאישור אוטומטי של כל הפעולות 3. ${this.d.store.getSettings().cmdReadback === 'description' ? 'להקראת הפקודה במלואה בכל בקשה' : 'להקראת תיאור קצר בלבד, והפקודה במקש 3'} 4. לחזרה 0`, this.next(c), { timeout: 20 });
     }
     if (input === '4') {
       const next = this.d.store.getSettings().notify === 'on' ? 'off' : 'on';
@@ -1091,6 +1103,12 @@ export class PhoneFlow {
   }
 
   private onSettingsMode(c: CallState, input: string | undefined): YemotResponse {
+    if (input === '4') {
+      const next = this.d.store.getSettings().cmdReadback === 'description' ? 'full' : 'description';
+      this.d.store.setSetting('cmdReadback', next);
+      this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_cmdReadback', detail: next });
+      return this.settingsScreen(c, next === 'full' ? 'מעכשיו בכל בקשה מוקראים התיאור והפקודה במלואה' : 'מעכשיו בכל בקשה מוקרא תיאור קצר בלבד. את הפקודה עצמה שומעים במקש 3');
+    }
     const modes: Record<string, EditMode> = { '1': 'readonly', '2': 'edit', '3': 'auto' };
     const next = input ? modes[input] : undefined;
     if (!next) return this.settingsScreen(c);
@@ -1171,7 +1189,7 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
     'בתוך תוצאה מקש 1 משמיע שוב מקש 3 ממשיך את השיחה בהקלטה ומקש 4 מחליף בין התשובה המלאה לסיכום הקצר',
     'מקש 5 מציג משימות שרצות עכשיו ומשם מקש 9 מבקש לעצור משימה',
     'מקש 6 מופיע רק כשיש בקשות אישור או שאלות שממתינות לך',
-    'מקש 7 להגדרות. מקש 8 מקריא את כל השיחות במחשב גם מחוץ לפרויקטים. מקש 9 להסבר הזה',
+    'מקש 7 להגדרות. מקש 8 לשיחות נוספות והוא מקריא את כל השיחות במחשב גם מחוץ לפרויקטים ואם הוגדרו שיחות ענן אפשר לבחור בהן ולשלוח להן הודעה. מקש 9 להסבר הזה',
     'ברשימות ארוכות סולמית עוברת לעמוד הבא ו 0 חוזר אחורה',
   ] },
   { title: 'הקלטה ושליחה', lines: [
@@ -1195,7 +1213,7 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
   { title: 'פרויקטים', lines: [
     'פרויקט הוא תיקייה במחשב שקלוד עובד בתוכה',
     'בטלפון מופיעים רק פרויקטים שסומנו זמין בטלפון בלוח הבקרה',
-    'פרויקט חדש פותחים במקש 3 ואז מקש 1 באמירת השם או בהקלדה שלו',
+    'פרויקט חדש פותחים במקש 3 ואז מקש 1 באמירת השם או בהקלדה שלו. ואם חיברת גיטהאב בלוח הבקרה מקש 3 בבחירת הפרויקט החדש מקריא את המאגרים שלך ופותח את מה שבחרת',
     'הפרויקט נוצר כתיקייה חדשה בתיקיית הפרויקטים ושיחה חדשה נפתחת בו מיד',
     'את המיקום של תיקיית הפרויקטים בוחרים בלוח הבקרה בלשונית פרויקטים ושם אפשר גם להעביר אותה למקום אחר',
     'תיקייה שכבר קיימת במחשב מוסיפים באשף ההגדרה במחשב',
@@ -1203,13 +1221,14 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
   { title: 'אישורים ושאלות', lines: [
     'כשקלוד רוצה להריץ פקודה הוא מבקש אישור',
     'מקש 1 מאשר מקש 2 דוחה מקש 8 דוחה ומקליט לקלוד מה לעשות במקום מקש 7 משמיע שוב ו 0 מדלג',
+    'בפקודה שקלוד תיאר בקצרה מוקרא התיאור בלבד ומקש 3 משמיע את הפקודה עצמה. אפשר לשנות להקראה מלאה בהגדרות במקש 7 ואז 1 ואז 4',
     'כשקלוד שואל שאלה בוחרים תשובה במקש המתאים או מקש 8 לתשובה בהקלטה או מקש 9 להקלדה',
     'בקשה שלא נענתה בזמן פוקעת וקלוד לא מבצע אותה',
     'אם אתה ממתין בקו הבקשה מוקראת מיד ואם ניתקת תקבל צינתוק',
   ] },
   { title: 'הגדרות', lines: [
     'בהגדרות במקש 7',
-    'מקש 1 מצב העבודה קריאה בלבד או עריכה עם אישור שלך לכל פקודה או אישור אוטומטי של הכל',
+    'מקש 1 מצב העבודה קריאה בלבד או עריכה עם אישור שלך לכל פקודה או אישור אוטומטי של הכל ובו גם מקש 4 קובע אם מוקרא תיאור קצר בלבד לפקודה או הפקודה במלואה',
     'מקש 2 בוחר קול ומקש 3 את מהירות ההקראה',
     'מקש 4 מפעיל או מכבה את הצינתוקים ובלילה בשבת ובחג הצינתוקים נדחים לסוף זמן השקט',
     'מקש 5 בוחר מודל פייבל הוא החזק ביותר אופוס חזק מאוד סונט מאוזן והייקו מהיר וחסכוני',
