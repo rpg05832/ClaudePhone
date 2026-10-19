@@ -436,3 +436,27 @@ test('בלי טוקן של GitHub אין אפשרות GitHub בתפריט', asyn
   await c.send(); await c.send(PIN); await c.send('3');
   assert.doesNotMatch(await c.send('1'), /GitHub/);
 });
+
+test('שיחת ענן מהטלפון: 8 ואז 2, בחירה, הקלטה, תמלול ואישור שולחים הודעה', async () => {
+  const sent: [string, string][] = [];
+  const { flow } = setup({
+    allConversations: () => [],
+    cloud: { list: () => [{ id: 'session_A', name: 'הוועד' }, { id: 'session_B', name: 'יוטיוב' }], send: async (id, t) => { sent.push([id, t]); } },
+  });
+  const c = call(flow);
+  await c.send(); await c.send(PIN);
+  assert.match(await c.send('8'), /לשליחת הודעה לשיחת ענן 2/);
+  assert.match(await c.send('2'), /ליוטיוב הקש 2/);
+  assert.match(await c.send('2'), /record,\/9,cp-/);
+  assert.match(await c.send('/9/x.wav'), /go_to_folder=\/9/);
+  assert.match(await c.send(), /ליעד: שיחת יוטיוב.*לשליחה הקש 1/);
+  assert.match(await c.send('1'), /ההודעה נשלחה לשיחת יוטיוב/);
+  assert.deepEqual(sent, [['session_B', 'תשתמש ב-pnpm במקום']]);
+});
+
+test('בלי שיחות ענן, מקש 8 ממשיך ישר לכל השיחות', async () => {
+  const { flow } = setup({ allConversations: () => [], cloud: { list: () => [], send: async () => {} } });
+  const c = call(flow);
+  await c.send(); await c.send(PIN);
+  assert.doesNotMatch(await c.send('8'), /שיחת ענן/);
+});

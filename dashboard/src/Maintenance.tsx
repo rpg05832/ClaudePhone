@@ -205,3 +205,36 @@ export function GithubBox() {
     </div>
   );
 }
+
+// ---------- שיחות ענן ----------
+
+/** שיחות Claude Code בענן (claude.ai/code): בטלפון, מקש 8 ואז 2, שולחים להן הודעה בהקלטה. חד-כיווני: התשובה נראית בשיחה עצמה. */
+export function CloudBox() {
+  const [rows, setRows] = useState<{ name: string; url: string }[]>([]);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => { act<{ sessions: { name: string; url: string }[] }>('/cloud/sessions').then(r => setRows(r.sessions)).catch(() => {}); }, []);
+  const set = (i: number, k: 'name' | 'url', v: string) => { setRows(rows.map((r, j) => j === i ? { ...r, [k]: v } : r)); setDirty(true); };
+  const save = async () => {
+    setMsg(null);
+    try { const r = await act<{ sessions: { name: string; url: string }[] }>('/cloud/sessions', { sessions: rows }); setRows(r.sessions); setDirty(false); setMsg({ ok: true, text: 'נשמר' }); }
+    catch (e: any) { setMsg({ ok: false, text: e.message }); }
+  };
+  return (
+    <div className="card settings-form">
+      {rows.map((r, i) => (
+        <div className="row" key={i}>
+          <label className="field"><span>שם להקראה</span><input value={r.name} onChange={e => set(i, 'name', e.target.value)} /></label>
+          <label className="field grow"><span>קישור לשיחה</span><input value={r.url} onChange={e => set(i, 'url', e.target.value)} dir="ltr" placeholder="https://claude.ai/code/session_…" /></label>
+          <button className="btn" onClick={() => { setRows(rows.filter((_, j) => j !== i)); setDirty(true); }}>הסר</button>
+        </div>
+      ))}
+      <div className="row">
+        <button className="btn" onClick={() => { setRows([...rows, { name: '', url: '' }]); setDirty(true); }}>הוסף שיחה</button>
+        {dirty && <button className="btn primary" onClick={save}>שמור</button>}
+      </div>
+      <p className="hint">בטלפון: מקש 8 (שיחות נוספות), ואז 2 (שיחת ענן). בוחרים שיחה, מקליטים הודעה, ושומעים את התמלול לאישור לפני השליחה. השליחה חד-כיוונית: התשובה תופיע בשיחה עצמה באתר או באפליקציה. דורש ש-Claude Code במחשב מחובר לאותו חשבון (פקודה חד-פעמית: claude auth login). שיחה בארכיון לא מקבלת הודעות.</p>
+      {msg && <div className={msg.ok ? 'hint' : 'error'}>{msg.text}</div>}
+    </div>
+  );
+}

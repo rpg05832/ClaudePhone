@@ -58,6 +58,8 @@ export interface FlowDeps {
   freeTzintuk?: () => { folder: string; onRedirect: () => void } | null;
   /** מאגרי GitHub כפרויקטים (טוקן בלוח הבקרה). בלי זה, או בלי טוקן: אין אפשרות GitHub בתפריט. */
   github?: { enabled: () => boolean; list: () => Promise<{ fullName: string; spokenName: string }[]>; open: (fullName: string) => Promise<Project> };
+  /** שיחות ענן: רשימה ושליחת הודעה (חד-כיוונית). בלי זה, או ברשימה ריקה: אין אפשרות ענן. */
+  cloud?: { list: () => { id: string; name: string }[]; send: (id: string, text: string) => Promise<void> };
   /** עיכוב (נדרס בבדיקות). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -67,7 +69,7 @@ type Target = { kind: 'new'; projectId: string } | { kind: 'continue'; conversat
 type Screen =
   | 'pin' | 'main'
   | 'convList' | 'projList' | 'liveList'
-  | 'newProjMode' | 'newProjName' | 'newProjConfirm' | 'ghList' | 'ghOpening'
+  | 'newProjMode' | 'newProjName' | 'newProjConfirm' | 'ghList' | 'ghOpening' | 'moreMenu' | 'cloudList' | 'cloudRecorded' | 'cloudTranscribing' | 'cloudConfirm'
   | 'record' | 'transcribing' | 'confirmTranscript'
   | 'waiting'
   | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback' | 'settingsStt'
@@ -102,6 +104,7 @@ interface CallState {
   recFile?: string;
   newProjByKeyboard?: boolean;
   ghRepos?: { fullName: string; spokenName: string }[];   // תמונת מצב של רשימת המאגרים שהוקראה
+  cloudSel?: { id: string; name: string; file?: string; text?: string; error?: string; done: boolean };
   ghJob?: { done: boolean; error?: string; project?: Project; since: number };
   liveIds?: string[];
   convIds?: string[];           // תמונת מצב של רשימת השיחות שהוקראה (כדי שהבחירה תתאים למה שנשמע)
@@ -207,6 +210,11 @@ export class PhoneFlow {
       case 'newProjMode': return this.onNewProjMode(c, input);
       case 'newProjName': return this.onNewProjName(c, input);
       case 'newProjConfirm': return this.onNewProjConfirm(c, input);
+      case 'moreMenu': return this.onMoreMenu(c, input);
+      case 'cloudList': return this.onCloudList(c, input);
+      case 'cloudRecorded': return this.onCloudRecorded(c);
+      case 'cloudTranscribing': return this.onCloudTranscribing(c);
+      case 'cloudConfirm': return this.onCloudConfirm(c, input);
       case 'ghList': return this.onGhList(c, input);
       case 'ghOpening': return this.onGhOpening(c);
       case 'record': return this.onRecorded(c, input);
@@ -289,15 +297,18 @@ export class PhoneFlow {
     if (prefix) res.say(prefix);
     const pending = this.d.store.pendingPermissionRequests().length ? 'לבקשות שממתינות לך 6. ' : '';
     const live = this.d.liveSessions?.().length ? 'לשיחה הפתוחה במחשב 1. ' : '';
-    const all = this.d.allConversations ? 'לכל השיחות במחשב 8. ' : '';
-    return res.readDigits(`${pending}${live}להמשך שיחה 2. לשיחה חדשה 3. לתוצאות 4. למשימות פעילות 5. להגדרות 7. ${all}להסבר על המערכת 9. לסיום 0`, this.next(c), { timeout: 20 });
+    const more = this.d.allConversations ? (this.hasCloud() ? 'לשיחות נוספות 8. ' : 'לכל השיחות במחשב 8. ') : '';
+    return res.readDigits(`${pending}${live}להמשך שיחה 2. לשיחה חדשה 3. לתוצאות 4. למשימות פעילות 5. להגדרות 7. ${more}להסבר על המערכת 9. לסיום 0`, this.next(c), { timeout: 20 });
   }
 
   private onMain(c: CallState, input: string | undefined): YemotResponse {
     switch (input) {
       case '1': return this.liveListScreen(c);
       case '2': c.page = 0; c.convAll = false; return this.convListScreen(c);
-      case '8': if (!this.d.allConversations) return this.mainMenu(c, 'בחירה לא תקינה'); c.page = 0; c.convAll = true; return this.convListScreen(c);
+      case '8':
+        if (!this.d.allConversations) return this.mainMenu(c, 'בחירה לא תקינה');
+        if (this.hasCloud()) return this.moreMenuScreen(c);
+        c.page = 0; c.convAll = true; return this.convListScreen(c);
       case '3': c.page = 0; return this.projListScreen(c);
       case '4': return this.resultsScreen(c);
       case '5': return this.activeListScreen(c);
@@ -404,6 +415,89 @@ export class PhoneFlow {
     c.target = { kind: 'continue', conversationId: conv.id, projectId: proj.id };
     const note = ours && conv.active ? 'השיחה בעבודה כרגע. ההודעה תמתין בתור עד שתסתיים. ' : '';
     return this.recordScreen(c, `${note}המשך השיחה ${conv.title} בפרויקט ${proj.spokenName}.`);
+  }
+
+  // ===================== 8: שיחות נוספות (כל השיחות במחשב, שיחות ענן) =====================
+
+  private hasCloud(): boolean { return !!this.d.cloud && this.d.cloud.list().length > 0; }
+
+  private moreMenuScreen(c: CallState, prefix = ''): YemotResponse {
+    c.screen = 'moreMenu';
+    const res = r();
+    if (prefix) res.say(prefix);
+    return res.readDigits('לכל השיחות במחשב 1. לשליחת הודעה לשיחת ענן 2. לחזרה 0', this.next(c), { timeout: 20 });
+  }
+
+  private onMoreMenu(c: CallState, input: string | undefined): YemotResponse {
+    if (input === '0') return this.mainMenu(c);
+    if (input === '1') { c.page = 0; c.convAll = true; return this.convListScreen(c); }
+    if (input === '2' && this.hasCloud()) { c.page = 0; return this.cloudListScreen(c); }
+    return this.moreMenuScreen(c, 'בחירה לא תקינה');
+  }
+
+  private cloudListScreen(c: CallState, prefix = ''): YemotResponse {
+    c.screen = 'cloudList';
+    const all = this.d.cloud?.list() ?? [];
+    if (!all.length) return this.mainMenu(c, 'אין שיחות ענן שמורות');
+    let page = all.slice(c.page * PAGE, c.page * PAGE + PAGE);
+    if (!page.length) { c.page = 0; page = all.slice(0, PAGE); }
+    const more = all.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
+    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${x.name} הקש ${i + 1}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
+  }
+
+  private onCloudList(c: CallState, input: string | undefined): YemotResponse {
+    if (input === '0') return this.moreMenuScreen(c);
+    if (!input) { c.page += 1; return this.cloudListScreen(c); }
+    const s = /^[1-9]$/.test(input) ? (this.d.cloud?.list() ?? [])[c.page * PAGE + Number(input) - 1] : undefined;
+    if (!s) return this.cloudListScreen(c, 'בחירה לא תקינה');
+    return this.cloudRecordScreen(c, { id: s.id, name: s.name, done: false }, `הודעה לשיחת ${s.name}`);
+  }
+
+  private cloudRecordScreen(c: CallState, sel: NonNullable<CallState['cloudSel']>, prefix = ''): YemotResponse {
+    c.recCount += 1;
+    const file = `cp-${c.callId.replace(/[^A-Za-z0-9]/g, '').slice(-10)}-c${c.recCount}`;
+    c.cloudSel = { id: sel.id, name: sel.name, file: `/${c.ext}/${file}.wav`, done: false };
+    c.screen = 'cloudRecorded';
+    const res = r();
+    if (prefix) res.say(prefix);
+    return res.record('הקלט את ההודעה. בסיום הקש סולמית', this.next(c), `/${c.ext}`, file);
+  }
+
+  private onCloudRecorded(c: CallState): YemotResponse {
+    const sel = c.cloudSel!;
+    this.d.transcribeAudio(sel.file!)
+      .then(t => { sel.text = t.trim(); sel.done = true; })
+      .catch(e => { logError('stt', e, 'cloud'); sel.error = 'התמלול נכשל'; sel.done = true; });
+    c.screen = 'cloudTranscribing';
+    return r().say('מתמלל').goto(`/${c.ext}`);
+  }
+
+  private async onCloudTranscribing(c: CallState): Promise<YemotResponse> {
+    const sel = c.cloudSel!;
+    const deadline = Date.now() + 9000;
+    while (!sel.done && Date.now() < deadline) await this.sleep(250);
+    if (!sel.done) return r().goto(`/${c.ext}`);
+    if (sel.error || !sel.text) return this.cloudRecordScreen(c, sel, `${sel.error ?? 'לא זוהה דיבור'}. הקלט שוב.`);
+    c.screen = 'cloudConfirm';
+    return r().say(`התמלול: ${sel.text}`).readDigits(`ליעד: שיחת ${sel.name}. לשליחה הקש 1. להקלטה מחדש 2. לביטול 3`, this.next(c), { timeout: 30 });
+  }
+
+  private async onCloudConfirm(c: CallState, input: string | undefined): Promise<YemotResponse> {
+    const sel = c.cloudSel;
+    if (!sel?.text) return this.mainMenu(c);
+    if (input === '2') return this.cloudRecordScreen(c, sel);
+    if (input === '3' || input === '0') { c.cloudSel = undefined; return this.mainMenu(c, 'בוטל'); }
+    if (input !== '1') return r().readDigits('לשליחה הקש 1. להקלטה מחדש 2. לביטול 3', this.next(c), { timeout: 30 });
+    try {
+      await this.d.cloud!.send(sel.id, sel.text);
+      this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'cloud_sent', detail: sel.name });
+      c.cloudSel = undefined;
+      return this.mainMenu(c, `ההודעה נשלחה לשיחת ${sel.name}. התשובה תופיע בשיחה עצמה`);
+    } catch (e) {
+      logError('cloud', e, 'send');
+      c.cloudSel = undefined;
+      return this.mainMenu(c, e instanceof Error && e.message ? e.message : 'השליחה נכשלה');
+    }
   }
 
   // ===================== 3: שיחה חדשה או פרויקט חדש =====================
