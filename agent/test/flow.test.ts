@@ -414,3 +414,25 @@ test('מקש 9: הסבר על המערכת, נושא, וחזרה לתפריט', 
   assert.match(await c.send('8'), /בחירה לא תקינה/);
   assert.match(await c.send('0'), /להמשך שיחה 2/);
 });
+
+test('פרויקט חדש ממאגר GitHub: רשימה, בחירה, שכפול והקלטה בפרויקט', async () => {
+  const opened: string[] = [];
+  const repos = [{ fullName: 'me/site-one', spokenName: 'site one' }, { fullName: 'me/api', spokenName: 'api' }];
+  const { flow, store } = setup({ github: { enabled: () => true, list: async () => repos, open: async (n) => { opened.push(n); return store2().addProject({ name: n.split('/')[1], path: '/tmp/gh/' + n }); } } });
+  const store2 = () => store;
+  const c = call(flow);
+  await c.send(); await c.send(PIN); await c.send('3');
+  assert.match(await c.send('1'), /לבחירת מאגר מ.?GitHub הקש 3/);
+  assert.match(await c.send('3'), /לsite one הקש 1.*לapi הקש 2/);
+  assert.match(await c.send('9'), /בחירה לא תקינה/);
+  assert.match(await c.send('2'), /פותח את api/);
+  assert.match(await c.send(), /record,\/9,cp-/);
+  assert.deepEqual(opened, ['me/api']);
+});
+
+test('בלי טוקן של GitHub אין אפשרות GitHub בתפריט', async () => {
+  const { flow } = setup({ github: { enabled: () => false, list: async () => [], open: async () => { throw new Error('x'); } } });
+  const c = call(flow);
+  await c.send(); await c.send(PIN); await c.send('3');
+  assert.doesNotMatch(await c.send('1'), /GitHub/);
+});

@@ -56,6 +56,8 @@ export interface FlowDeps {
   sttChanged?: () => void;
   /** צינתוקים חינמיים: הנתיב של שלוחת ההרשמה (למשל /9/1), והודעה אחרי שהמשתמש הופנה אליה. null: לא מופעל. */
   freeTzintuk?: () => { folder: string; onRedirect: () => void } | null;
+  /** מאגרי GitHub כפרויקטים (טוקן בלוח הבקרה). בלי זה, או בלי טוקן: אין אפשרות GitHub בתפריט. */
+  github?: { enabled: () => boolean; list: () => Promise<{ fullName: string; spokenName: string }[]>; open: (fullName: string) => Promise<Project> };
   /** עיכוב (נדרס בבדיקות). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -65,7 +67,7 @@ type Target = { kind: 'new'; projectId: string } | { kind: 'continue'; conversat
 type Screen =
   | 'pin' | 'main'
   | 'convList' | 'projList' | 'liveList'
-  | 'newProjMode' | 'newProjName' | 'newProjConfirm'
+  | 'newProjMode' | 'newProjName' | 'newProjConfirm' | 'ghList' | 'ghOpening'
   | 'record' | 'transcribing' | 'confirmTranscript'
   | 'waiting'
   | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback' | 'settingsStt'
@@ -99,6 +101,8 @@ interface CallState {
   recCount: number;
   recFile?: string;
   newProjByKeyboard?: boolean;
+  ghRepos?: { fullName: string; spokenName: string }[];   // תמונת מצב של רשימת המאגרים שהוקראה
+  ghJob?: { done: boolean; error?: string; project?: Project; since: number };
   liveIds?: string[];
   convIds?: string[];           // תמונת מצב של רשימת השיחות שהוקראה (כדי שהבחירה תתאים למה שנשמע)
   convAll?: boolean;            // מקש 8: כל השיחות במחשב (ולא רק של פרויקטים בטלפון)
@@ -203,6 +207,8 @@ export class PhoneFlow {
       case 'newProjMode': return this.onNewProjMode(c, input);
       case 'newProjName': return this.onNewProjName(c, input);
       case 'newProjConfirm': return this.onNewProjConfirm(c, input);
+      case 'ghList': return this.onGhList(c, input);
+      case 'ghOpening': return this.onGhOpening(c);
       case 'record': return this.onRecorded(c, input);
       case 'transcribing': return this.onTranscribing(c);
       case 'confirmTranscript': return this.onConfirmTranscript(c, input);
@@ -428,16 +434,66 @@ export class PhoneFlow {
     c.screen = 'newProjMode';
     const res = r();
     if (prefix) res.say(prefix);
-    return res.readDigits('פרויקט חדש. לאמירת השם הקש 1. להקלדת השם במקלדת הקש 2. לחזרה 0', this.next(c), { timeout: 20 });
+    const gh = this.d.github?.enabled() ? ' לבחירת מאגר מ-GitHub הקש 3.' : '';
+    return res.readDigits(`פרויקט חדש. לאמירת השם הקש 1. להקלדת השם במקלדת הקש 2.${gh} לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
   private onNewProjMode(c: CallState, input: string | undefined): YemotResponse {
     if (input === '0') { c.page = 0; return this.projListScreen(c); }
+    if (input === '3' && this.d.github?.enabled()) return this.ghListScreen(c, true);
     c.screen = 'newProjName';
     c.newProjByKeyboard = input === '2';
     if (input === '1') return r().readVoice('אמור את שם הפרויקט אחרי הצליל', this.next(c));
     if (input === '2') return r().readText('הקלד את שם הפרויקט וסולמית', this.next(c), { max: 40 });
     return this.newProjModeScreen(c, 'בחירה לא תקינה');
+  }
+
+  /** מאגרי GitHub: תשעה בכל עמוד, במקשים 1 עד 9. סולמית לעמוד הבא, 0 לחזרה. */
+  private async ghListScreen(c: CallState, fresh = false, prefix = ''): Promise<YemotResponse> {
+    c.screen = 'ghList';
+    if (fresh) {
+      c.page = 0;
+      try { c.ghRepos = await this.d.github!.list(); }
+      catch (e) { return this.newProjModeScreen(c, e instanceof Error ? e.message : 'לא הצלחתי לקרוא את המאגרים'); }
+    }
+    const repos = c.ghRepos ?? [];
+    if (!repos.length) return this.newProjModeScreen(c, 'לא נמצאו מאגרים בחשבון');
+    let page = repos.slice(c.page * PAGE, c.page * PAGE + PAGE);
+    if (!page.length) { c.page = 0; page = repos.slice(0, PAGE); }
+    const more = repos.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
+    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${x.spokenName} הקש ${i + 1}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
+  }
+
+  private async onGhList(c: CallState, input: string | undefined): Promise<YemotResponse> {
+    if (input === '0') return this.newProjModeScreen(c);
+    if (!input) { c.page += 1; return this.ghListScreen(c); }
+    const repo = (c.ghRepos ?? [])[c.page * PAGE + Number(input) - 1];
+    if (!repo || !/^[1-9]$/.test(input)) return this.ghListScreen(c, false, 'בחירה לא תקינה');
+    // שכפול יכול להימשך זמן: רץ ברקע, והשיחה ממתינה עם מוזיקה (כמו בתמלול)
+    const job: NonNullable<CallState['ghJob']> = { done: false, since: Date.now() };
+    c.ghJob = job;
+    this.d.github!.open(repo.fullName)
+      .then(p => { job.project = p; })
+      .catch(e => { job.error = e instanceof Error ? e.message : 'פתיחת המאגר נכשלה'; })
+      .finally(() => { job.done = true; });
+    c.screen = 'ghOpening';
+    return r().say(`פותח את ${repo.spokenName}. בפעם הראשונה זה יכול לקחת כמה דקות`).goto(`/${c.ext}`);
+  }
+
+  private async onGhOpening(c: CallState): Promise<YemotResponse> {
+    const job = c.ghJob;
+    if (!job) return this.newProjModeScreen(c);
+    const deadline = Date.now() + 9000;
+    while (!job.done && Date.now() < deadline) await this.sleep(250);
+    if (!job.done) {
+      if (Date.now() - job.since > 10 * 60_000) return this.newProjModeScreen(c, 'פתיחת המאגר נמשכת יותר מדי. בדוק בלוח הבקרה');
+      return r().goto(`/${c.ext}`);
+    }
+    c.ghJob = undefined;
+    if (job.error || !job.project) return this.newProjModeScreen(c, job.error ?? 'פתיחת המאגר נכשלה');
+    this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'project_created', detail: `github:${job.project.name}` });
+    c.target = { kind: 'new', projectId: job.project.id };
+    return this.recordScreen(c, `הפרויקט ${job.project.spokenName} מוכן.`);
   }
 
   private async onNewProjName(c: CallState, input: string | undefined): Promise<YemotResponse> {

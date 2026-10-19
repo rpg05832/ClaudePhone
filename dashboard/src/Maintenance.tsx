@@ -172,3 +172,36 @@ export function LocationCard() {
     </div>
   );
 }
+
+// ---------- GitHub ----------
+
+/** חיבור GitHub: עם טוקן, מקש 3 בתפריט "פרויקט חדש" בטלפון מקריא את המאגרים ומשכפל את מה שנבחר. */
+export function GithubBox() {
+  const [status, setStatus] = useState<{ connected: boolean; login: string | null; error?: string } | null>(null);
+  const [token, setToken] = useState('');
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => act('/github/status').then(setStatus).catch(() => setStatus(null));
+  useEffect(() => { load(); }, []);
+  const save = async (value: string) => {
+    setBusy(true); setMsg(null);
+    try { const r = await act<{ connected: boolean; login: string | null }>('/github/token', { token: value }); setToken(''); setMsg({ ok: true, text: r.connected ? `מחובר כ-${r.login}` : 'החיבור הוסר' }); await load(); }
+    catch (e: any) { setMsg({ ok: false, text: e.message }); }
+    setBusy(false);
+  };
+  return (
+    <div className="card settings-form">
+      <div className="row">
+        <b>חיבור GitHub</b>
+        {status?.connected && status.login ? <span className="pill ok">מחובר כ-<bdi>{status.login}</bdi></span> : status?.connected ? <span className="pill warn">{status.error ?? 'לא ניתן לאמת'}</span> : <span className="muted">לא מחובר</span>}
+      </div>
+      <div className="row">
+        <label className="field grow"><span>טוקן גישה (Personal access token)</span><input type="password" value={token} onChange={e => setToken(e.target.value)} dir="ltr" placeholder={status?.connected ? 'להחלפה: הדבק טוקן חדש' : 'github_pat_…'} autoComplete="off" /></label>
+        <button className="btn" disabled={busy || !token.trim()} onClick={() => save(token)}>שמור</button>
+        {status?.connected && <button className="btn" disabled={busy} onClick={() => save('')}>נתק</button>}
+      </div>
+      <p className="hint">אחרי החיבור, בטלפון: מקש 3 (פרויקטים), 1 (פרויקט חדש), 3 (מאגר מ-GitHub). המאגר מועתק לתיקיית הפרויקטים ונפתח כפרויקט; בפעמים הבאות הוא מתעדכן לפני העבודה. כדי ש-Claude יוכל גם לדחוף, צור טוקן עם הרשאת Contents: Read and write (ו-Metadata: Read) למאגרים שלך. הטוקן נשמר רק במחשב הזה, בקובץ data\github.token, ולא נשלח לשום מקום חוץ מ-GitHub.</p>
+      {msg && <div className={msg.ok ? 'hint' : 'error'}>{msg.text}</div>}
+    </div>
+  );
+}
