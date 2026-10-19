@@ -106,9 +106,14 @@ export class DashboardActions {
         if (!REPO_RE.test(repo)) return bad('שם המאגר צריך להיות בצורה owner/repo');
         u.setRepo(repo); cfg.update.repo = repo; patch.repo = repo;
       }
+      if (body?.upstream !== undefined) {
+        const up = String(body.upstream).trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+        if (up && !REPO_RE.test(up)) return bad('שם המאגר צריך להיות בצורה owner/repo');
+        u.setUpstream(up || null); cfg.update.upstream = up || null; patch.upstream = up || null;
+      }
       if (typeof body?.auto === 'boolean') { u.setAuto(body.auto); cfg.update.auto = body.auto; patch.auto = body.auto; }
       saveUserConfig({ update: patch }, this.d.root ?? AGENT_ROOT);
-      if (patch.repo) await u.check();
+      if (patch.repo || patch.upstream !== undefined) await u.check();
       return ok(u.state);
     }
 

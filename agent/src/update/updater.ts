@@ -1,7 +1,7 @@
 // עדכון מתוך התוכנה: בודק ב-GitHub Releases אם יש גרסה חדשה, מוריד את קובץ ההתקנה, מוודא שהוא תקין ומריץ אותו בשקט.
 // קובץ ההתקנה עוצר את הסוכן, מחליף את הקבצים (ההגדרות והנתונים נשמרים) ומפעיל אותו מחדש.
 //
-// מה נחשב גרסה: ה-Release האחרון (לא טיוטה ולא prerelease) במאגר שבהגדרות, עם קובץ ClaudePhone-Setup-<גרסה>.exe (Windows)
+// מה נחשב גרסה: ה-Release האחרון (לא טיוטה ולא prerelease) בכל אחד משני המאגרים שבהגדרות (שלי והמקורי; נבחרת הגבוהה מביניהן), עם קובץ ClaudePhone-Setup-<גרסה>.exe (Windows)
 // או ClaudePhone-linux-<x64|arm64>-<גרסה>.tar.gz (לינוקס). בלינוקס, install.sh שבתיקיית ההתקנה פורס את הקובץ ומפעיל מחדש.
 // אימות: הגודל, ו-SHA-256 כש-GitHub מפרסם אותו (שדה digest) או כשיש לצד הקובץ קובץ .sha256.
 import { createWriteStream, mkdirSync, existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
@@ -18,6 +18,8 @@ export interface UpdateState {
   enabled: boolean;
   disabledReason: string | null;
   repo: string;
+  upstream: string | null;
+  source: string | null;        // המאגר שממנו הגיעה הגרסה האחרונה
   current: string | null;
   latest: string | null;
   available: boolean;
@@ -33,6 +35,8 @@ export interface UpdateState {
 
 export interface UpdaterOptions {
   repo: string;
+  /** המאגר המקורי של המפתח: מקור עדכונים נוסף, תמיד נבדק לצד repo. */
+  upstream?: string | null;
   apiBase?: string;
   current: string | null;
   checkHours?: number;
@@ -57,6 +61,11 @@ const ASSET_LINUX_ARM64 = /^ClaudePhone-linux-arm64-(\d+\.\d+\.\d+)\.tar\.gz$/i;
 export function assetPattern(platform: NodeJS.Platform = process.platform, arch: string = process.arch): RegExp {
   if (platform === 'linux') return arch === 'arm64' ? ASSET_LINUX_ARM64 : ASSET_LINUX_X64;
   return ASSET;
+}
+interface Candidate {
+  repo: string; version: string | null;
+  asset: { url: string; name: string; size: number; sha256: string | null } | null;
+  notes: string | null; publishedAt: string | null; pageUrl: string | null;
 }
 const HEADERS = { 'User-Agent': 'ClaudePhone-updater', Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
 
@@ -107,7 +116,7 @@ export class Updater {
     this.fetchFn = o.fetch ?? fetch;
     const reason = o.disabledReason ?? (o.current ? null : 'גרסת פיתוח: העדכון האוטומטי פועל רק בתוכנה המותקנת');
     this.state = {
-      enabled: !reason, disabledReason: reason, repo: o.repo, current: o.current, latest: null, available: false,
+      enabled: !reason, disabledReason: reason, repo: o.repo, upstream: o.upstream ?? null, source: null, current: o.current, latest: null, available: false,
       notes: null, publishedAt: null, pageUrl: null, checkedAt: null, error: null, phase: 'idle', progress: null, auto: !!o.auto,
     };
   }
@@ -115,6 +124,12 @@ export class Updater {
   setRepo(repo: string): void {
     if (!REPO_RE.test(repo)) throw new Error('שם המאגר צריך להיות בצורה owner/repo');
     this.o.repo = repo; this.state.repo = repo;
+    this.state.latest = null; this.state.available = false; this.state.error = null; this.asset = null;
+  }
+
+  setUpstream(repo: string | null): void {
+    if (repo && !REPO_RE.test(repo)) throw new Error('שם המאגר צריך להיות בצורה owner/repo');
+    this.o.upstream = repo; this.state.upstream = repo;
     this.state.latest = null; this.state.available = false; this.state.error = null; this.asset = null;
   }
 
@@ -131,45 +146,71 @@ export class Updater {
 
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
+  /** המאגרים לבדיקה: שלי קודם (בשוויון גרסאות עדיף), ואחריו המאגר המקורי. בלי כפילויות. */
+  private repos(): string[] {
+    return [...new Set([this.o.repo, this.o.upstream].filter((r): r is string => !!r && REPO_RE.test(r)))];
+  }
+
+  /** ה-Release האחרון במאגר אחד, עם קובץ ההתקנה למערכת הזו (אם יש). */
+  private async fetchRelease(repo: string): Promise<Candidate> {
+    const api = (this.o.apiBase ?? 'https://api.github.com').replace(/\/+$/, '');
+    const r = await this.fetchFn(`${api}/repos/${repo}/releases/latest`, { headers: HEADERS, signal: AbortSignal.timeout(20_000) });
+    if (r.status === 404) throw new Error(`לא נמצאה גרסה מפורסמת ב-${repo}. ייתכן שהמאגר פרטי או שעוד לא פורסמה גרסה`);
+    if (r.status === 403 || r.status === 429) throw new Error('GitHub הגביל זמנית את מספר הבדיקות. ננסה שוב מאוחר יותר');
+    if (!r.ok) throw new Error(`GitHub החזיר שגיאה ${r.status} (${repo})`);
+    const j: any = await r.json();
+    const assets: any[] = Array.isArray(j.assets) ? j.assets : [];
+    const pat = assetPattern(this.o.platform, this.o.arch);
+    const exe = assets.find(a => pat.test(String(a.name)));
+    const version = exe ? String(exe.name).match(pat)![1] : (parseVersion(j.tag_name) ? String(j.tag_name).replace(/^v/i, '') : null);
+    let asset: Candidate['asset'] = null;
+    if (exe) {
+      let sha = typeof exe.digest === 'string' && exe.digest.startsWith('sha256:') ? exe.digest.slice(7).toLowerCase() : null;
+      if (!sha) {
+        const side = assets.find(a => String(a.name).toLowerCase() === `${String(exe.name).toLowerCase()}.sha256`);
+        if (side) {
+          const t = await (await this.fetchFn(side.browser_download_url, { headers: { 'User-Agent': HEADERS['User-Agent'] }, signal: AbortSignal.timeout(20_000) })).text();
+          sha = t.match(/\b[a-fA-F0-9]{64}\b/)?.[0]?.toLowerCase() ?? null;
+        }
+      }
+      asset = { url: String(exe.browser_download_url), name: String(exe.name), size: Number(exe.size) || 0, sha256: sha };
+    }
+    return {
+      repo, version, asset,
+      notes: typeof j.body === 'string' ? j.body.slice(0, 4000) : null,
+      publishedAt: j.published_at ?? null,
+      pageUrl: typeof j.html_url === 'string' ? j.html_url : null,
+    };
+  }
+
+  /** בודק את כל המאגרים ובוחר את הגרסה הגבוהה ביותר. מאגר שנכשל לא מפיל את הבדיקה כל עוד אחר ענה. */
   async check(): Promise<UpdateState> {
     const s = this.state;
     if (!s.enabled) return s;
     if (s.phase === 'downloading' || s.phase === 'installing') return s;
     s.phase = 'checking'; s.error = null;
-    try {
-      const api = (this.o.apiBase ?? 'https://api.github.com').replace(/\/+$/, '');
-      const r = await this.fetchFn(`${api}/repos/${this.o.repo}/releases/latest`, { headers: HEADERS, signal: AbortSignal.timeout(20_000) });
-      if (r.status === 404) throw new Error('לא נמצאה גרסה מפורסמת במאגר. ייתכן שהמאגר פרטי או שעוד לא פורסמה גרסה');
-      if (r.status === 403 || r.status === 429) throw new Error('GitHub הגביל זמנית את מספר הבדיקות. ננסה שוב מאוחר יותר');
-      if (!r.ok) throw new Error(`GitHub החזיר שגיאה ${r.status}`);
-      const j: any = await r.json();
-      const assets: any[] = Array.isArray(j.assets) ? j.assets : [];
-      const pat = assetPattern(this.o.platform, this.o.arch);
-      const exe = assets.find(a => pat.test(String(a.name)));
-      const version = exe ? String(exe.name).match(pat)![1] : (parseVersion(j.tag_name) ? String(j.tag_name).replace(/^v/i, '') : null);
-      s.latest = version;
-      s.notes = typeof j.body === 'string' ? j.body.slice(0, 4000) : null;
-      s.publishedAt = j.published_at ?? null;
-      s.pageUrl = typeof j.html_url === 'string' ? j.html_url : null;
-      this.asset = null;
-      if (exe) {
-        let sha = typeof exe.digest === 'string' && exe.digest.startsWith('sha256:') ? exe.digest.slice(7).toLowerCase() : null;
-        if (!sha) {
-          const side = assets.find(a => String(a.name).toLowerCase() === `${String(exe.name).toLowerCase()}.sha256`);
-          if (side) {
-            const t = await (await this.fetchFn(side.browser_download_url, { headers: { 'User-Agent': HEADERS['User-Agent'] }, signal: AbortSignal.timeout(20_000) })).text();
-            sha = t.match(/\b[a-fA-F0-9]{64}\b/)?.[0]?.toLowerCase() ?? null;
-          }
-        }
-        this.asset = { url: String(exe.browser_download_url), name: String(exe.name), size: Number(exe.size) || 0, sha256: sha };
-      }
-      s.available = !!(this.asset && version && s.current && compareVersions(version, s.current) > 0);
-      s.phase = 'idle';
-      if (s.available) log('update', `גרסה חדשה זמינה: ${version} (מותקנת ${s.current})`);
-    } catch (e) {
-      s.error = e instanceof Error ? (e.name === 'TimeoutError' ? 'אין תשובה מ-GitHub. בדוק את החיבור לאינטרנט' : e.message) : String(e);
-      s.phase = 'idle';
+    const found: Candidate[] = [];
+    const errors: string[] = [];
+    for (const repo of this.repos()) {
+      try { found.push(await this.fetchRelease(repo)); }
+      catch (e) { errors.push(e instanceof Error ? (e.name === 'TimeoutError' ? 'אין תשובה מ-GitHub. בדוק את החיבור לאינטרנט' : e.message) : String(e)); }
     }
+    // עדיפות למי שיש לו קובץ התקנה, ואז לגרסה הגבוהה. בשוויון נשאר הראשון (המאגר שלי).
+    let best: Candidate | null = null;
+    for (const c of found) {
+      if (!best) { best = c; continue; }
+      if (!!c.asset !== !!best.asset) { if (c.asset) best = c; continue; }
+      if (c.version && (!best.version || compareVersions(c.version, best.version) > 0)) best = c;
+    }
+    this.asset = null;
+    if (best) {
+      s.latest = best.version; s.notes = best.notes; s.publishedAt = best.publishedAt; s.pageUrl = best.pageUrl; s.source = best.repo;
+      this.asset = best.asset;
+      s.available = !!(best.asset && best.version && s.current && compareVersions(best.version, s.current) > 0);
+      if (s.available) log('update', `גרסה חדשה זמינה: ${best.version} מ-${best.repo} (מותקנת ${s.current})`);
+    } else { s.latest = null; s.available = false; s.source = null; }
+    if (errors.length && (!best || !found.length || errors.length === this.repos().length)) s.error = errors[0];
+    s.phase = 'idle';
     s.checkedAt = new Date().toISOString();
     return s;
   }

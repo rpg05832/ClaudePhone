@@ -63,13 +63,15 @@ function useInstallWatch(u: UpdateState | null | undefined, reload: () => void) 
 /** בלשונית "הגדרות ותקינות": גרסה, בדיקה, התקנה, מאגר ועדכון אוטומטי. */
 export function UpdateBox({ u, reload }: { u: UpdateState | null | undefined; reload: () => void }) {
   const [repo, setRepo] = useState(u?.repo ?? '');
+  const [upstream, setUpstream] = useState(u?.upstream ?? '');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
   useEffect(() => { if (u?.repo) setRepo(u.repo); }, [u?.repo]);
+  useEffect(() => { setUpstream(u?.upstream ?? ''); }, [u?.upstream]);
   if (!u) return null;
   if (!u.enabled) return <div className="card settings-form"><p className="muted">{u.disabledReason}</p></div>;
   const check = async () => { setChecking(true); setMsg(null); try { await act('/update/check'); reload(); } catch (e: any) { setMsg({ ok: false, text: e.message }); } setChecking(false); };
-  const saveRepo = async () => { setMsg(null); try { await act('/update/settings', { repo }); setMsg({ ok: true, text: 'נשמר ונבדק' }); reload(); } catch (e: any) { setMsg({ ok: false, text: e.message }); } };
+  const saveRepo = async () => { setMsg(null); try { await act('/update/settings', { repo, upstream }); setMsg({ ok: true, text: 'נשמר ונבדק' }); reload(); } catch (e: any) { setMsg({ ok: false, text: e.message }); } };
   const setAuto = async (auto: boolean) => { try { await act('/update/settings', { auto }); reload(); } catch (e: any) { setMsg({ ok: false, text: e.message }); } };
   const busy = u.phase === 'downloading' || u.phase === 'installing';
   return (
@@ -83,6 +85,7 @@ export function UpdateBox({ u, reload }: { u: UpdateState | null | undefined; re
         <div className="row">
           {u.available && <InstallButton u={u} />}
           <button className="btn" onClick={check} disabled={checking || u.phase === 'checking'}>{checking || u.phase === 'checking' ? 'בודק…' : 'בדוק עכשיו'}</button>
+          {u.source && <span className="muted" dir="ltr">{u.source}</span>}
           {u.pageUrl && <a href={u.pageUrl} target="_blank" rel="noreferrer" className="linkbtn">דף הגרסה ב-GitHub</a>}
         </div>
       )}
@@ -91,9 +94,12 @@ export function UpdateBox({ u, reload }: { u: UpdateState | null | undefined; re
       <label className="check"><input type="checkbox" checked={u.auto} onChange={e => setAuto(e.target.checked)} /> להתקין עדכונים לבד, כשאין משימה פעילה ואין שיחת טלפון</label>
       <div className="row">
         <label className="field grow"><span>מאגר העדכונים ב-GitHub</span><input value={repo} onChange={e => setRepo(e.target.value)} dir="ltr" placeholder="owner/repo" /></label>
-        {repo !== u.repo && <button className="btn" onClick={saveRepo}>שמור</button>}
       </div>
-      <p className="hint">התוכנה בודקת כל כמה שעות אם יש גרסה חדשה ב-Releases של המאגר. המאגר צריך להיות ציבורי, או לפחות ה-Releases שבו. ההגדרות, הפרויקטים וההיסטוריה נשמרים בעדכון.</p>
+      <div className="row">
+        <label className="field grow"><span>המאגר המקורי של המפתח (מקור עדכונים נוסף)</span><input value={upstream} onChange={e => setUpstream(e.target.value)} dir="ltr" placeholder="owner/repo" /></label>
+        {(repo !== u.repo || upstream !== (u.upstream ?? '')) && <button className="btn" onClick={saveRepo}>שמור</button>}
+      </div>
+      <p className="hint">התוכנה בודקת כל כמה שעות את ה-Releases של שני המאגרים ומציעה את הגרסה הגבוהה מביניהם (בשוויון, המאגר שלך). המאגר צריך להיות ציבורי, או לפחות ה-Releases שבו. ההגדרות, הפרויקטים וההיסטוריה נשמרים בעדכון.</p>
       {msg && <div className={msg.ok ? 'hint' : 'error'}>{msg.text}</div>}
     </div>
   );

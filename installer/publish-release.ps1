@@ -7,7 +7,7 @@
 # build-release.ps1 ו-build-linux.mjs (ראה docs\releasing.md). גוף ההודעה: docs\release-notes-<גרסה>.md בלי שורת הכותרת.
 param(
   [Parameter(Mandatory = $true)][string]$Version,
-  [string]$Repo = 'rpg05832/ClaudePhone',
+  [string]$Repo = 'shmuel-sinay/ClaudePhone',
   [string]$TokenFile = (Join-Path $env:LOCALAPPDATA 'ClaudePhone\github-token.txt'),
   [switch]$Draft   # להשאיר כטיוטה (לא לפרסם)
 )

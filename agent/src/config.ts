@@ -18,7 +18,7 @@ export interface Config {
   dashboard: { port: number; tokenFile: string; staticDir: string };
   retention: { recordingsDays: number };
   history: { resumeSources: ('sdk' | 'desktop' | 'cli' | 'vscode' | 'unknown' | 'cowork')[]; activeMinutes: number };
-  update: { repo: string; apiBase: string; checkHours: number; auto: boolean };
+  update: { repo: string; upstream: string | null; apiBase: string; checkHours: number; auto: boolean };
   phoneServer: { port: number; path: string };
   tunnel: { mode: 'quick' | 'none'; cloudflaredPath: string; publicUrl: string };
   dataDir: string;

@@ -15,7 +15,7 @@
 ## התקנה
 פותחים טרמינל ומריצים:
 ```
-curl -fsSL https://github.com/rpg05832/ClaudePhone/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/shmuel-sinay/ClaudePhone/releases/latest/download/install.sh | bash
 ```
 ההתקנה:
 1. מורידה את הקובץ המתאים למחשב (x64 או arm64) ובודקת את טביעת האצבע שלו.

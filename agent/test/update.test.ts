@@ -170,3 +170,23 @@ test('תיקיית פרויקטים: לא בתוך פרויקט שעובר, ול
   assert.throws(() => f.loc.change(join(f.site.path, 'פנימי'), true), /בתוך הפרויקט/);
   if (process.platform === 'win32') assert.throws(() => f.loc.change('D:\\', false), /כונן/);
 });
+
+test('עדכון משני מאגרים: נבחרת הגרסה הגבוהה, ובשוויון המאגר שלי', async () => {
+  const body = Buffer.from('x'.repeat(100));
+  const mine = fakeGitHub({ version: '0.7.6', body });
+  const orig = fakeGitHub({ version: '0.8.0', body });
+  const both = (async (url: any, init: any) => String(url).includes('/repos/me/app/') ? mine.f(url, init) : orig.f(url, init)) as unknown as typeof fetch;
+  const u = new Updater({ platform: 'win32', repo: 'me/app', upstream: 'dev/app', current: '0.7.5', fetch: both });
+  await u.check();
+  assert.equal(u.state.latest, '0.8.0'); assert.equal(u.state.source, 'dev/app'); assert.ok(u.state.available);
+
+  const tie = new Updater({ platform: 'win32', repo: 'me/app', upstream: 'dev/app', current: '0.7.5', fetch: (async (url: any, init: any) => String(url).includes('/repos/me/app/') ? mine.f(url, init) : mine.f(url, init)) as unknown as typeof fetch });
+  await tie.check();
+  assert.equal(tie.state.source, 'me/app');
+
+  // מאגר אחד נכשל (404): השני עדיין מספק עדכון, בלי שגיאה
+  const down = (async (url: any, init: any) => String(url).includes('/repos/me/app/') ? new Response('{}', { status: 404 }) : orig.f(url, init)) as unknown as typeof fetch;
+  const part = new Updater({ platform: 'win32', repo: 'me/app', upstream: 'dev/app', current: '0.7.5', fetch: down });
+  await part.check();
+  assert.ok(part.state.available); assert.equal(part.state.error, null);
+});
