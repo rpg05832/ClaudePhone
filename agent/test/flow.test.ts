@@ -202,7 +202,7 @@ test('הגדרות: בחירת קול ומהירות מוחלת על השלוח�
   await c.send('3');
   await c.send('3');
   assert.deepEqual(voiceCalls.at(-1), ['Sivan', 4]);
-  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude' });
+  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude', cmdReadback: 'description' });
 });
 
 function doneTask(tasks: Tasks, projId: string, resultText: string, resultSummary: string) {
@@ -459,4 +459,42 @@ test('בלי שיחות ענן, מקש 8 ממשיך ישר לכל השיחות',
   const c = call(flow);
   await c.send(); await c.send(PIN);
   assert.doesNotMatch(await c.send('8'), /שיחת ענן/);
+});
+
+test('בקשת פקודה עם תיאור: מוקרא התיאור בלבד, ומקש 3 משמיע את הפקודה', async () => {
+  const { flow, store, tasks, proj } = setup();
+  const req = pendingReq(store, tasks, proj.id, 'Bash', { command: 'npm install --save left-pad', description: 'התקנת חבילה קטנה' }, 'התקנת חבילה קטנה. הפקודה: npm install --save left-pad');
+  const c = call(flow);
+  await c.send();
+  const shown = await c.send(PIN);
+  assert.match(shown, /קלוד מבקש אישור: התקנת חבילה קטנה&read/);
+  assert.doesNotMatch(shown, /left.?pad/);
+  assert.match(shown, /לשמיעת הפקודה עצמה 3/);
+  const cmd = await c.send('3');
+  assert.match(cmd, /הפקודה עצמה: npm install .*left.?pad/);
+  assert.equal(store.getPermissionRequest(req.id)!.decision, null);   // השמעה לא מאשרת
+  assert.match(await c.send('1'), /אושר/);
+});
+
+test('מצב הקראה מלאה, ופקודה בלי תיאור: הפקודה מוקראת במלואה', async () => {
+  const { flow, store, tasks, proj } = setup();
+  store.setSetting('cmdReadback', 'full');
+  pendingReq(store, tasks, proj.id, 'Bash', { command: 'ls -la', description: 'רשימת קבצים' }, 'רשימת קבצים. הפקודה: ls -la');
+  const c = call(flow);
+  await c.send();
+  const shown = await c.send(PIN);
+  assert.match(shown, /רשימת קבצים הפקודה: ls .?la/);
+  assert.doesNotMatch(shown, /לשמיעת הפקודה עצמה/);
+});
+
+test('הגדרות: מצב עבודה ואז 4 מחליף בין תיאור בלבד להקראה מלאה', async () => {
+  const { flow, store } = setup();
+  const c = call(flow);
+  await c.send(); await c.send(PIN); await c.send('7');
+  assert.match(await c.send('1'), /להקראת הפקודה במלואה בכל בקשה 4/);
+  assert.match(await c.send('4'), /תיאור והפקודה במלואה|התיאור והפקודה במלואה/);
+  assert.equal(store.getSettings().cmdReadback, 'full');
+  await c.send('1');
+  assert.match(await c.send('4'), /תיאור קצר בלבד/);
+  assert.equal(store.getSettings().cmdReadback, 'description');
 });

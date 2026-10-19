@@ -574,6 +574,11 @@ function SettingsForm({ s }: { s: Overview['settings'] }) {
             <option value="full">התשובה המלאה של Claude (אפשר לקטוע בהקשה)</option>
             <option value="summary">הסיכום הקצר בלבד</option>
           </select></label>
+        <label className="field short"><span>בקשת אישור לפקודה</span>
+          <select value={s.cmdReadback ?? 'description'} onChange={e => save({ cmdReadback: e.target.value })}>
+            <option value="description">תיאור קצר בלבד (הפקודה במקש 3)</option>
+            <option value="full">התיאור והפקודה במלואה</option>
+          </select></label>
         <label className="field short"><span>תמלול ההקלטות</span>
           <select value={s.stt ?? 'claude'} onChange={e => save({ stt: e.target.value })}>
             <option value="claude">Claude (שירות ההכתבה, בלי התקנה)</option>
