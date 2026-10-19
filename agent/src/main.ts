@@ -327,7 +327,7 @@ notifier.start();
 
 // ---------- עדכון מתוך התוכנה, תיקיית הפרויקטים ----------
 const updater = new Updater({
-  repo: cfg.update.repo, upstream: cfg.update.upstream, apiBase: cfg.update.apiBase, current: appVersion, checkHours: cfg.update.checkHours, auto: cfg.update.auto,
+  repo: cfg.update.repo, apiBase: cfg.update.apiBase, current: appVersion, checkHours: cfg.update.checkHours, auto: cfg.update.auto,
   disabledReason: process.platform !== 'win32' && process.platform !== 'linux' ? `העדכון לא זמין ב-${osName()}` : null,
   // עדכון אוטומטי רק כשאין עבודה: אין משימה פעילה, אין שיחת טלפון ואין בקשה שממתינה
   canAutoInstall: () => !tasks.listActive().length && !flow.activeCalls() && !store.pendingPermissionRequests().length,

@@ -26,7 +26,7 @@ Claude בטלפון: התקנה ועדכון בלינוקס
 שימוש: install.sh [אפשרויות]
   --from-file FILE   התקנה מקובץ ClaudePhone-linux-<arch>-<version>.tar.gz שכבר הורד
   --version X.Y.Z    גרסה מסוימת (ברירת מחדל: האחרונה)
-  --repo OWNER/NAME  מאגר ה-Releases (ברירת מחדל: rpg05832/ClaudePhone)
+  --repo OWNER/NAME  מאגר ה-Releases (ברירת מחדל: shmuel-sinay/ClaudePhone)
   --dir PATH         תיקיית ההתקנה (ברירת מחדל: ~/.local/share/claudephone)
   --no-start         לא להפעיל את הסוכן בסוף
   --quiet            בלי פתיחת דפדפן ובלי הודעות (עדכון מתוך התוכנה)

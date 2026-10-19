@@ -83,7 +83,7 @@ export interface Overview {
 }
 
 export interface UpdateState {
-  enabled: boolean; disabledReason: string | null; repo: string; upstream: string | null; source: string | null; current: string | null; latest: string | null; available: boolean;
+  enabled: boolean; disabledReason: string | null; repo: string; current: string | null; latest: string | null; available: boolean;
   notes: string | null; publishedAt: string | null; pageUrl: string | null; checkedAt: string | null; error: string | null;
   phase: 'idle' | 'checking' | 'downloading' | 'installing' | 'failed'; progress: number | null; auto: boolean;
 }
