@@ -22,6 +22,7 @@ import { createProjectFromPhone } from './projects.ts';
 import { PinLockout, loadPinHash } from './util/pin.ts';
 import { PermissionBroker } from './claude/broker.ts';
 import { Notifier } from './notify/notifier.ts';
+import { FreeTzintuk } from './notify/free-tzintuk.ts';
 import { DEFAULT_QUIET, quietState } from './notify/quiet.ts';
 import { ClaudeHistory } from './history/claude-history.ts';
 import { ConversationIndex } from './history/conversations.ts';
@@ -29,7 +30,7 @@ import { CoworkHistory } from './history/cowork.ts';
 import { splitSummary, cleanForSpeech } from './claude/runner.ts';
 import { discoverMcp, serverLabel } from './claude/mcp.ts';
 import { CHROME_SLUG, CHROME_LABEL, chromePolicy, listChromeBrowsers } from './claude/chrome.ts';
-import { startDashboard, loadOrCreateToken } from './web/server.ts';
+import { startDashboard, loadOrCreateToken, maskPhone } from './web/server.ts';
 import { DashboardActions } from './web/actions.ts';
 import { openDashboardWindow, desktopShortcutScript, startupScript } from './web/open.ts';
 import { Updater, installedVersion } from './update/updater.ts';
@@ -163,10 +164,34 @@ stt.warmup().catch(e => logError('stt', e, 'warmup'));
 // ---------- התראות ----------
 const quiet = { ...DEFAULT_QUIET, ...cfg.quietHours };
 let flowRef: PhoneFlow | null = null;
+// צינתוקים חינמיים: רשימה בשם קבוע, שלוחת הרשמה <שלוחה>/1. אם כל הטלפונים רשומים (ורק הם), הצינתוק חינם; אחרת 0.1 יחידה למספר
+const freeListName = String(cfg.notifications.freeList ?? '').trim();
+const freeTzintuk = freeListName ? new FreeTzintuk({ listName: freeListName, entries: () => yemot.tzintukListEntries(freeListName), allowed: () => cfg.phones.allowed }) : null;
+const freeTzintukFolder = `/${cfg.yemot.chatExtension}/1`;
+let freeTzintukExtensionReady = false;
+async function ensureFreeTzintukExtension(): Promise<void> {
+  if (!freeTzintuk || freeTzintukExtensionReady) return;
+  try {
+    await yemot.setTzintukListExtension(`${cfg.yemot.chatExtension}/1`, freeListName);
+    freeTzintukExtensionReady = true;
+    const st = await freeTzintuk.check(cfg.phones.allowed, true);
+    log('notify', `צינתוקים חינמיים: שלוחת ההרשמה ${freeTzintukFolder} מוכנה (רשימה "${freeListName}"). ${st.ok ? 'כל הטלפונים רשומים: הצינתוקים חינם' : st.missing.length ? `לא רשומים: ${st.missing.map(maskPhone).join(', ')} (הרשמה: בטלפון 7 ואז 9)` : st.foreign.length ? `ברשימה מספר לא מורשה: ${st.foreign.map(maskPhone).join(', ')}; הצינתוקים בתשלום` : 'הרשימה ריקה'}`);
+  } catch (e) { logError('notify', e, 'שלוחת צינתוקים חינמיים'); }
+}
 const notifier = new Notifier({
   store, tasks, quiet,
   phones: () => cfg.phones.allowed,
-  tzintuk: (phones) => yemot.tzintuk(phones),
+  tzintuk: async (phones) => {
+    if (freeTzintuk) {
+      const c = await freeTzintuk.check(phones);
+      if (c.ok) {
+        try { await yemot.tzintukList(freeListName); return 'free'; }
+        catch (e) { logError('notify', e, 'צינתוק לרשימה החינמית; עובר לצינתוק בתשלום'); }
+      }
+    }
+    await yemot.tzintuk(phones);
+    return 'paid';
+  },
   inCall: (phone) => flowRef?.isPhoneInCall(phone) ?? false,
   maxAttempts: cfg.limits.dialAttempts,
 });
@@ -292,6 +317,7 @@ const flow = new PhoneFlow({
   },
   mcpConnections: () => { const p = mcpPolicy(); return p ? p.enabled.map(s => p.labels[s] ?? s) : []; },
   sttChanged: () => { if (localSttInstalled) whisper.warmup().catch(e => logError('stt', e, 'warmup')); },
+  freeTzintuk: () => (freeTzintuk && freeTzintukExtensionReady ? { folder: freeTzintukFolder, onRedirect: () => freeTzintuk.invalidate() } : null),
 });
 
 flowRef = flow;
@@ -352,6 +378,7 @@ const dash = startDashboard({
     claude: { ok: true, busyWith: worker.busyWith, claudeCodeVersion: history.list().find(h => h.version)?.version ?? null },
     phone: { activeCalls: flow.activeCalls() },
     quiet: quietState(new Date(), quiet),
+    freeTzintuk: freeTzintuk ? { ...freeTzintuk.status(), ready: freeTzintukExtensionReady, folder: freeTzintukFolder } : null,
     retentionDays: cfg.retention.recordingsDays,
   }),
 });
@@ -378,7 +405,7 @@ const ttsSettings = () => { const s = store.getSettings(); return { voice: s.voi
 async function connectTunnel(attempt = 1): Promise<void> {
   if (cfg.tunnel.mode === 'none') {
     currentUrl = cfg.tunnel.publicUrl;
-    if (currentUrl) { await yemot.setApiExtension(cfg.yemot.chatExtension, currentUrl + cfg.phoneServer.path, ttsSettings()); state.extensionUpdatedAt = new Date().toISOString(); }
+    if (currentUrl) { await yemot.setApiExtension(cfg.yemot.chatExtension, currentUrl + cfg.phoneServer.path, ttsSettings()); state.extensionUpdatedAt = new Date().toISOString(); void ensureFreeTzintukExtension(); }
     return;
   }
   try {
@@ -390,6 +417,7 @@ async function connectTunnel(attempt = 1): Promise<void> {
     await yemot.setApiExtension(cfg.yemot.chatExtension, t.url + cfg.phoneServer.path, ttsSettings());
     state.extensionUpdatedAt = new Date().toISOString();
     log('main', `שלוחה ${cfg.yemot.chatExtension} מחוברת למחשב`);
+    void ensureFreeTzintukExtension();
     t.onExit(() => { if (stopping) return; log('main', 'המנהרה נפלה; מתחבר מחדש'); currentUrl = ''; state.extensionUpdatedAt = null; setTimeout(() => connectTunnel(), 5000); });
   } catch (e) {
     logError('tunnel', e, `ניסיון ${attempt}`);

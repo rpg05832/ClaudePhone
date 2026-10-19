@@ -54,6 +54,8 @@ export interface FlowDeps {
   mcpConnections?: () => string[];
   /** אחרי מעבר למנוע תמלול מקומי: טעינת המודל מראש */
   sttChanged?: () => void;
+  /** צינתוקים חינמיים: הנתיב של שלוחת ההרשמה (למשל /9/1), והודעה אחרי שהמשתמש הופנה אליה. null: לא מופעל. */
+  freeTzintuk?: () => { folder: string; onRedirect: () => void } | null;
   /** עיכוב (נדרס בבדיקות). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -841,10 +843,17 @@ export class PhoneFlow {
     const sttName = STT_ENGINES.find(m => m.id === st.stt)?.spoken ?? '';
     const conns = this.d.mcpConnections?.() ?? [];
     res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}. התמלול: ${sttName}${conns.length ? `. חיבורים פתוחים למשימות: ${conns.join(', ')}` : ''}`);
-    return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. למה מוקרא בסיום משימה 7. למנוע התמלול 8. לחזרה 0`, this.next(c), { timeout: 20 });
+    return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. למה מוקרא בסיום משימה 7. למנוע התמלול 8. ${this.d.freeTzintuk?.() ? 'להרשמה לצינתוקים חינמיים 9. ' : ''}לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
   private async onSettings(c: CallState, input: string | undefined): Promise<YemotResponse> {
+    if (input === '9' && this.d.freeTzintuk?.()) {
+      const ft = this.d.freeTzintuk()!;
+      ft.onRedirect();
+      this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'free_tzintuk_signup', detail: ft.folder });
+      // השלוחה של ימות משמיעה תפריט משלה: 1 מוסיף את המספר של המתקשר לרשימה, ואז השיחה מתנתקת
+      return r().say('מעביר להרשמה לצינתוקים חינמיים. בתפריט שיישמע, הקש 1 כדי להוסיף את המספר שלך לרשימה').goto(ft.folder);
+    }
     if (input === '8') {
       c.screen = 'settingsStt';
       return r().readDigits('לתמלול בשירות של קלוד, בלי התקנה, הקש 1. לתמלול במחשב עם איברית איי איי 2. כל אחד מהם משמש גיבוי לשני. לחזרה 0', this.next(c), { timeout: 20 });

@@ -63,7 +63,33 @@ export class YemotApi {
     } catch { return null; }
   }
 
+  /** צינתוק למספרים מפורשים: 0.1 יחידה למספר (f2.freeivr.co.il/post/64941). */
   async tzintuk(phones: string[], timeoutSeconds = 9): Promise<void> {
     await this.call('RunTzintuk', { phones, TzintukTimeOut: timeoutSeconds });
+  }
+
+  /** צינתוק לרשימת צינתוקים חינמיים, ללא עלות. ב-JSON: phones="tzl:" והרשימות ב-tzintukLists (אותו מקור). */
+  async tzintukList(listName: string, timeoutSeconds = 9): Promise<void> {
+    await this.call('RunTzintuk', { phones: 'tzl:', tzintukLists: [listName], TzintukTimeOut: timeoutSeconds });
+  }
+
+  /** המספרים הרשומים ברשימת צינתוקים חינמיים (f2.freeivr.co.il/post/65034). רשימה שלא קיימת: ריקה. */
+  async tzintukListEntries(listName: string): Promise<string[]> {
+    let j: any;
+    try { j = await this.call('TzintukimListManagement', { action: 'getlistEnteres', TzintukimList: listName }); }
+    catch (e) {
+      // הרשימה נוצרת בימות רק כשמישהו נרשם אליה; עד אז "Tzintukim List Does not exist" (נבדק 19.10)
+      if (/does not exist/i.test(e instanceof Error ? e.message : String(e))) return [];
+      throw e;
+    }
+    return (Array.isArray(j.enteres) ? j.enteres : []).map((e: any) => String(e?.phone ?? '')).filter(Boolean);
+  }
+
+  /**
+   * שלוחת הרשמה לרשימת צינתוקים חינמיים (type=tzintuk, f2.freeivr.co.il/post/121), כתת-שלוחה של שלוחת ה-API.
+   * מי שנכנס אליה ממספר מזוהה מקיש 1 ונרשם; בסיום השיחה מתנתקת. שלוחה שלא קיימת נוצרת.
+   */
+  async setTzintukListExtension(extension: string, listName: string): Promise<void> {
+    await this.call('UpdateExtension', { path: `ivr2:${extension}`, type: 'tzintuk', list_tzintuk: listName, tzintuk_end: 'hangup' });
   }
 }

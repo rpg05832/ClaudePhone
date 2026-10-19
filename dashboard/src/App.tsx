@@ -500,6 +500,7 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
     ['ימות המשיח', h.yemot?.ok, h.yemot?.ok ? `שלוחה ${h.yemot.extension} עודכנה ${when(h.yemot.updatedAt)}` : 'השלוחה לא עודכנה'],
     ['תמלול', h.stt?.ok, h.stt?.detail ?? (h.stt?.ok ? 'מוכן' : 'לא זמין')],
     ['Claude Code', true, `${h.claude?.claudeCodeVersion ? 'גרסה ' + h.claude.claudeCodeVersion : ''}${h.claude?.busyWith ? ' · עובד על משימה' : ' · פנוי'}`],
+    ...(h.freeTzintuk ? [['צינתוקים', h.freeTzintuk.ready ? (h.freeTzintuk.free ? true : null) : false, freeTzintukText(h.freeTzintuk)] as [string, boolean | null, string]] : []),
   ];
   return (
     <section>
@@ -520,6 +521,15 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
       <p className="hint">אותן הגדרות כמו במקש 7 בטלפון. כל שינוי חל מיד, גם על משימה שכבר רצה (בשאלה הבאה).</p>
     </section>
   );
+}
+
+/** מצב הצינתוקים החינמיים לשורה אחת: מי רשום, מי לא, ומה זה אומר על העלות. */
+function freeTzintukText(f: any): string {
+  const mask = (p: string) => (p.length > 4 ? '•••' + p.slice(-4) : p);
+  if (!f.ready) return `שלוחת ההרשמה לרשימה החינמית "${f.listName}" עוד לא הוגדרה${f.error ? ': ' + f.error : ''}. בינתיים כל צינתוק עולה 0.1 יחידה`;
+  if (f.foreign?.length) return `ברשימה החינמית "${f.listName}" יש מספר שאינו מורשה (${f.foreign.map(mask).join(', ')}), ולכן הצינתוקים נשלחים בתשלום (0.1 יחידה). למחוק אותו: בתפריט הניהול של השלוחה בימות`;
+  if (f.missing?.length) return `חינם לרשומים ברשימה "${f.listName}"${f.members?.length ? ' (' + f.members.map(mask).join(', ') + ')' : ''}. לא רשומים: ${f.missing.map(mask).join(', ')}, אליהם הצינתוק עולה 0.1 יחידה. הרשמה: בטלפון, 7 ואז 9, ואז 1`;
+  return `חינם: כל הטלפונים המורשים רשומים ברשימה "${f.listName}" (${(f.members ?? []).map(mask).join(', ')})`;
 }
 
 function SettingsForm({ s }: { s: Overview['settings'] }) {

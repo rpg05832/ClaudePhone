@@ -11,7 +11,8 @@ export interface NotifierDeps {
   store: Store; tasks: Tasks;
   quiet: QuietConfig;
   phones: () => string[];
-  tzintuk: (phones: string[]) => Promise<void>;
+  /** שולח צינתוק; מחזיר 'free' (רשימה חינמית) או 'paid' (מספרים ישירות), או כלום */
+  tzintuk: (phones: string[]) => Promise<'free' | 'paid' | void>;
   /** האם המספר נמצא כרגע בשיחה עם המערכת (אז הוא ישמע את האירוע בשיחה). */
   inCall: (phone: string) => boolean;
   maxAttempts: number;
@@ -66,9 +67,9 @@ export class Notifier {
   private async send(items: { kind: string; refId: string }[], phones: string[]): Promise<void> {
     if (!phones.length) return;
     try {
-      await this.d.tzintuk(phones);
+      const how = await this.d.tzintuk(phones);
       for (const n of items) this.d.store.setNotificationState(n.kind, n.refId, 'sent', { attempt: true, sent: true });
-      log('notify', `צינתוק נשלח (${items.map(n => n.kind).join(', ')})`);
+      log('notify', `צינתוק נשלח (${items.map(n => n.kind).join(', ')})${how === 'free' ? ' דרך הרשימה החינמית' : how === 'paid' ? ' למספר, 0.1 יחידה' : ''}`);
     } catch (e) {
       logError('notify', e, 'צינתוק');
       for (const n of items) {

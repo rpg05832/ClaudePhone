@@ -9,7 +9,8 @@ export interface Config {
   projects: { newProjectsParent: string; initGit: boolean; list: { name: string; spokenName?: string; path: string }[] };
   limits: { recordSeconds: number; transcriptConfirmSeconds: number; queuedTaskHours: number; permissionMinutes: number; dialAttempts: number; waitOnCallMinutes: number };
   quietHours: { start: string; end: string; shabbatAndChag: boolean; includeCholHamoed: boolean; candleMinutes: number; marginMinutes: number; location: string };
-  notifications: { mode: 'tzintuk' | 'call' | 'none' };
+  /** freeList: שם רשימת הצינתוקים החינמיים (תת-שלוחה <שלוחה>/1). ריק: תמיד צינתוק בתשלום. */
+  notifications: { mode: 'tzintuk' | 'call' | 'none'; freeList: string };
   stt: { engine: 'faster-whisper' | 'yemot'; model: string; python: string; script: string; timeoutSeconds: number };
   claude: { strictMcp: boolean; permissionMode: 'default'; maxTurns: number; model?: string };
   /** חיבורי MCP למשימות מהטלפון: אילו שרתים פתוחים (לפי slug), והסריקה האחרונה של מה שקיים במחשב. */

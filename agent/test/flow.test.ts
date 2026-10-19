@@ -355,6 +355,22 @@ test('הגדרות: מקש 8 בוחר את מנוע התמלול, והבחירה
   assert.equal(store.getSettings().stt, 'claude');
 });
 
+test('הגדרות: מקש 9 מפנה לשלוחת ההרשמה לצינתוקים חינמיים, רק כשהיא מוגדרת', async () => {
+  let redirected = 0;
+  const { flow } = setup({ freeTzintuk: () => ({ folder: '/9/1', onRedirect: () => { redirected++; } }) });
+  const c = call(flow);
+  await c.send(); await c.send(PIN);
+  assert.match(await c.send('7'), /להרשמה לצינתוקים חינמיים 9/);
+  const body = await c.send('9');
+  assert.match(body, /הקש 1/);
+  assert.match(body, /go_to_folder=\/9\/1/);
+  assert.equal(redirected, 1);
+  const { flow: f2 } = setup();
+  const c2 = call(f2);
+  await c2.send(); await c2.send(PIN);
+  assert.doesNotMatch(await c2.send('7'), /צינתוקים חינמיים/);
+});
+
 test('הגדרות: כיבוי והפעלה של צינתוקים', async () => {
   const { flow, store } = setup();
   const c = call(flow);

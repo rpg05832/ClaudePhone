@@ -4,7 +4,7 @@
   "projects": { "newProjectsParent": "C:\\Users\\USER\\Desktop\\ClaudeProjects", "initGit": true, "list": [] },
   "limits": { "recordSeconds": 120, "transcriptConfirmSeconds": 60, "queuedTaskHours": 24, "permissionMinutes": 10, "dialAttempts": 3, "waitOnCallMinutes": 5 },
   "quietHours": { "start": "23:00", "end": "07:00", "shabbatAndChag": true, "includeCholHamoed": false, "candleMinutes": 40, "marginMinutes": 20, "location": "Jerusalem" },
-  "notifications": { "mode": "tzintuk" },
+  "notifications": { "mode": "tzintuk", "freeList": "ClaudePhone" },
   "stt": { "engine": "faster-whisper", "model": "ivrit-ai/whisper-large-v3-turbo-ct2", "python": "python", "script": "stt/transcribe.py", "timeoutSeconds": 180 },
   "claude": { "strictMcp": true, "permissionMode": "default", "maxTurns": 40 },
   "mcp": { "enabled": [], "chrome": { "enabled": false, "browser": "first", "browsers": [], "browsersAt": null }, "scan": null },
