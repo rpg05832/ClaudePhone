@@ -18,6 +18,7 @@ import { pickFolder } from './open.ts';
 import type { McpScan } from '../claude/mcp.ts';
 import type { ChromeBrowser, ChromeSettings } from '../claude/chrome.ts';
 import type { GitHubRepos } from '../github.ts';
+import { parseSessionId } from '../cloud-sessions.ts';
 import { log } from '../log.ts';
 
 export interface ActionDeps {
@@ -113,6 +114,28 @@ export class DashboardActions {
       saveUserConfig({ update: patch }, this.d.root ?? AGENT_ROOT);
       if (patch.repo) await u.check();
       return ok(u.state);
+    }
+
+    // שיחות ענן: רשימה (שם וקישור) שנשמרת ב-config.json, ונשלחת אליה הודעה מהטלפון
+    if (path === '/cloud/sessions') {
+      const cfg = this.d.cfg;
+      if (!cfg) return bad('לא זמין');
+      if (body?.sessions !== undefined) {
+        if (!Array.isArray(body.sessions) || body.sessions.length > 30) return bad('רשימה לא תקינה');
+        const out: { name: string; url: string }[] = [];
+        for (const x of body.sessions) {
+          const name = String(x?.name ?? '').trim().slice(0, 40), url = String(x?.url ?? '').trim();
+          if (!name && !url) continue;
+          const id = parseSessionId(url);
+          if (!name) return bad('חסר שם לשיחה');
+          if (!id) return bad(`הקישור של "${name}" אינו קישור לשיחת ענן (claude.ai/code/session_...)`);
+          if (out.some(o => parseSessionId(o.url) === id)) return bad(`השיחה "${name}" מופיעה פעמיים`);
+          out.push({ name, url: `https://claude.ai/code/${id}` });
+        }
+        cfg.cloud.sessions = out;
+        saveUserConfig({ cloud: { sessions: out } }, this.d.root ?? AGENT_ROOT);
+      }
+      return ok({ sessions: cfg.cloud.sessions.map(x => ({ name: x.name, url: x.url ?? x.id ?? '' })) });
     }
 
     // חיבור GitHub: טוקן (ריק מוחק). נשמר בקובץ בלבד ולא חוזר ללוח

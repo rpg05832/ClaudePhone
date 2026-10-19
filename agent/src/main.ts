@@ -20,6 +20,7 @@ import { ClaudeSpeechToText } from './stt/claude.ts';
 import { Worker } from './claude/worker.ts';
 import { createProjectFromPhone } from './projects.ts';
 import { GitHubRepos } from './github.ts';
+import { CloudSessions } from './cloud-sessions.ts';
 import { PinLockout, loadPinHash } from './util/pin.ts';
 import { PermissionBroker } from './claude/broker.ts';
 import { Notifier } from './notify/notifier.ts';
@@ -285,7 +286,9 @@ async function downloadRecording(yemotPath: string, prefix: string): Promise<str
 }
 
 const github = new GitHubRepos({ tokenFile: cfg.github.tokenFile, parent: () => cfg.projects.newProjectsParent, store });
+const cloud = new CloudSessions({ sessions: () => cfg.cloud.sessions, claudeExe: () => claudeExe });
 const flow = new PhoneFlow({
+  cloud: { list: () => cloud.list(), send: (id, t) => cloud.send(id, t) },
   github: { enabled: () => github.hasToken(), list: () => github.list(), open: (n) => github.open(n) },
   store, tasks,
   allowedPhones: () => cfg.phones.allowed,

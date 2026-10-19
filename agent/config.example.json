@@ -1,6 +1,7 @@
 {
   "yemot": { "chatExtension": "", "tokenFile": "data/yemot.token", "apiBase": "https://www.call2all.co.il/ym/api" },
   "phones": { "allowed": [], "pinHashFile": "data/pin.hash", "lockoutAttempts": 5, "lockoutMinutes": 15 },
+  "cloud": { "sessions": [] },
   "github": { "tokenFile": "data/github.token" },
   "projects": { "newProjectsParent": "C:\\Users\\USER\\Desktop\\ClaudeProjects", "initGit": true, "list": [] },
   "limits": { "recordSeconds": 120, "transcriptConfirmSeconds": 60, "queuedTaskHours": 24, "permissionMinutes": 10, "dialAttempts": 3, "waitOnCallMinutes": 5 },
