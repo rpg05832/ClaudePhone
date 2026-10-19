@@ -183,3 +183,22 @@ test('מודל: הגדרה כללית, בחירה לבקשה, וקדימות', a
   assert.equal(s.store.getSettings().effort, 'xhigh');
   assert.equal((await s.actions.handle('/settings', { effort: 'ultra' })).code, 400);
 });
+
+test('שיחות ענן בלוח: שמירה, ניקוי הקישור, וסירוב לקישור לא תקין או כפול', async () => {
+  const s = setup();
+  const { copyFileSync } = await import('node:fs');
+  const { loadConfig, AGENT_ROOT } = await import('../src/config.ts');
+  const root = mkdtempSync(join(tmpdir(), 'cpcloud-'));
+  copyFileSync(join(AGENT_ROOT, 'config.example.json'), join(root, 'config.example.json'));
+  const cfg = loadConfig(root);
+  const a = new DashboardActions({ store: s.store, tasks: s.tasks, conversations: s.conversations, kickWorker: () => {}, requestStop: () => {}, decide: (id, d, via) => s.broker.decide(id, d, via), cfg, root });
+  const ID = 'session_01AbCdEfGhIjKlMnOpQrStUv';
+  assert.deepEqual(((await a.handle('/cloud/sessions', {})).json as any).sessions, []);
+  const r = await a.handle('/cloud/sessions', { sessions: [{ name: 'הוועד', url: `https://claude.ai/code/${ID}?from=x` }, { name: '', url: '' }] });
+  assert.equal(r.code, 200);
+  assert.deepEqual((r.json as any).sessions, [{ name: 'הוועד', url: `https://claude.ai/code/${ID}` }]);
+  assert.equal(loadConfig(root).cloud.sessions[0].url, `https://claude.ai/code/${ID}`);
+  assert.equal((await a.handle('/cloud/sessions', { sessions: [{ name: 'א', url: 'https://example.com' }] })).code, 400);
+  assert.equal((await a.handle('/cloud/sessions', { sessions: [{ name: '', url: `https://claude.ai/code/${ID}` }] })).code, 400);
+  assert.equal((await a.handle('/cloud/sessions', { sessions: [{ name: 'א', url: ID }, { name: 'ב', url: ID }] })).code, 400);
+});

@@ -48,6 +48,7 @@ Copy-Item (Get-Command node).Source (Join-Path $app 'runtime\node.exe')
 Copy-Item (Join-Path $inst 'release\launcher.vbs') $app
 Copy-Item (Join-Path $inst 'release\stop.ps1') $app
 Copy-Item (Join-Path $inst 'release\icon.ico') $app
+Copy-Item (Join-Path $inst 'enable-boot-start.ps1') $app
 Set-Content -Path (Join-Path $app 'version.txt') -Value $Version -Encoding ASCII
 
 Step 'בדיקת עשן לחבילה'

@@ -3,7 +3,7 @@ import { act, useApi, useLiveConnected, type Overview, type Conversation, type T
 import Setup from './Setup';
 import Help from './Help';
 import { CreditLine } from './Credits';
-import { UpdateBanner, UpdateBox, LocationCard } from './Maintenance';
+import { UpdateBanner, UpdateBox, LocationCard, GithubBox, CloudBox } from './Maintenance';
 import ConversationView, { Composer } from './Chat';
 import McpConnections from './Mcp';
 import { MODEL_LABEL, EFFORT_LABEL, when, until, full, STATE_LABEL, stateTone, SOURCE_LABEL, DECISION_LABEL, VIA_LABEL, MODE_LABEL, VOICE_LABEL, PHONE_KIND } from './format';
@@ -516,6 +516,10 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
       <QuietForm />
       <h2>עדכונים</h2>
       <UpdateBox u={ov.update} reload={reload} />
+      <h2>GitHub</h2>
+      <GithubBox />
+      <h2>שיחות ענן</h2>
+      <CloudBox />
       <h2>גיבוי והעברה למחשב אחר</h2>
       <BackupBox />
       <p className="hint">אותן הגדרות כמו במקש 7 בטלפון. כל שינוי חל מיד, גם על משימה שכבר רצה (בשאלה הבאה).</p>

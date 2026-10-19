@@ -2,7 +2,7 @@
 # Claude בטלפון: התקנה ועדכון בלינוקס (כל ההפצות, x64 ו-arm64, מחשב עם מסך או שרת).
 #
 # התקנה ראשונה (בלי sudo):
-#   curl -fsSL https://github.com/rpg05832/ClaudePhone/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/shmuel-sinay/ClaudePhone/releases/latest/download/install.sh | bash
 # עדכון: התוכנה מריצה את הסקריפט הזה בעצמה (--from-file), או שמריצים שוב את אותה פקודה.
 #
 # מתקין לתיקייה ~/.local/share/claudephone (או CLAUDEPHONE_DIR), רושם שירות systemd של המשתמש שמפעיל את הסוכן
@@ -10,7 +10,7 @@
 set -euo pipefail
 USER="${USER:-$(id -un)}"
 
-REPO="${CLAUDEPHONE_REPO:-rpg05832/ClaudePhone}"
+REPO="${CLAUDEPHONE_REPO:-shmuel-sinay/ClaudePhone}"
 APP_DIR="${CLAUDEPHONE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/claudephone}"
 SERVICE=claudephone
 FROM_FILE=""
@@ -26,7 +26,7 @@ Claude בטלפון: התקנה ועדכון בלינוקס
 שימוש: install.sh [אפשרויות]
   --from-file FILE   התקנה מקובץ ClaudePhone-linux-<arch>-<version>.tar.gz שכבר הורד
   --version X.Y.Z    גרסה מסוימת (ברירת מחדל: האחרונה)
-  --repo OWNER/NAME  מאגר ה-Releases (ברירת מחדל: rpg05832/ClaudePhone)
+  --repo OWNER/NAME  מאגר ה-Releases (ברירת מחדל: shmuel-sinay/ClaudePhone)
   --dir PATH         תיקיית ההתקנה (ברירת מחדל: ~/.local/share/claudephone)
   --no-start         לא להפעיל את הסוכן בסוף
   --quiet            בלי פתיחת דפדפן ובלי הודעות (עדכון מתוך התוכנה)

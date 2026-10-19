@@ -1,0 +1,47 @@
+# בונה ומפרסם גרסה כשדוחפים תג v<גרסה> (למשל v0.7.6): קובץ Windows, שני קובצי לינוקס, install.sh וקובצי sha256.
+# גוף ההודעה: docs/release-notes-<גרסה>.md בלי שורת הכותרת.
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version: { description: 'מספר גרסה, למשל 0.7.6', required: true }
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Version
+        shell: pwsh
+        run: |
+          $v = ('${{ inputs.version || github.ref_name }}').TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "תג לא תקין: $v" }
+          "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - run: npm ci
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build Windows
+        shell: pwsh
+        run: ./installer/build-release.ps1 -Version $env:VERSION
+      - name: Build Linux
+        run: node installer/build-linux.mjs --version ${{ env.VERSION }}
+      - name: Publish
+        shell: pwsh
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          $out = 'installer/output'
+          $notes = Get-Content "docs/release-notes-$env:VERSION.md" -Raw -Encoding UTF8
+          $notes = ($notes -replace '^\s*#[^\r\n]*\r?\n', '').Trim()
+          Set-Content notes.txt $notes -Encoding UTF8
+          $files = @("ClaudePhone-Setup-$env:VERSION.exe","ClaudePhone-Setup-$env:VERSION.exe.sha256",
+            "ClaudePhone-linux-x64-$env:VERSION.tar.gz","ClaudePhone-linux-x64-$env:VERSION.tar.gz.sha256",
+            "ClaudePhone-linux-arm64-$env:VERSION.tar.gz","ClaudePhone-linux-arm64-$env:VERSION.tar.gz.sha256",'install.sh') | ForEach-Object { Join-Path $out $_ }
+          foreach ($f in $files) { if (-not (Test-Path $f)) { throw "חסר קובץ: $f" } }
+          gh release create "v$env:VERSION" @files --target ${{ github.sha }} --title "גרסה $env:VERSION" --notes-file notes.txt --latest

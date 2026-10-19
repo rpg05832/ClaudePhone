@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 export interface Config {
   yemot: { chatExtension: string; tokenFile: string; apiBase: string; recordFolder?: string };
   phones: { allowed: string[]; pinHashFile: string; lockoutAttempts: number; lockoutMinutes: number };
+  github: { tokenFile: string };
+  /** שיחות ענן שאפשר לשלוח אליהן הודעה מהטלפון (שם להקראה, וקישור או מזהה). */
+  cloud: { sessions: { name: string; url?: string; id?: string }[] };
   projects: { newProjectsParent: string; initGit: boolean; list: { name: string; spokenName?: string; path: string }[] };
   limits: { recordSeconds: number; transcriptConfirmSeconds: number; queuedTaskHours: number; permissionMinutes: number; dialAttempts: number; waitOnCallMinutes: number };
   quietHours: { start: string; end: string; shabbatAndChag: boolean; includeCholHamoed: boolean; candleMinutes: number; marginMinutes: number; location: string };
@@ -36,6 +39,7 @@ export function loadConfig(root = AGENT_ROOT): Config {
   if (Array.isArray(rs) && [...rs].sort().join(',') === 'cowork,desktop,sdk') cfg.history.resumeSources = base.history.resumeSources;
   cfg.dataDir = abs(root, cfg.dataDir || 'data');
   cfg.yemot.tokenFile = abs(root, cfg.yemot.tokenFile);
+  cfg.github.tokenFile = abs(root, cfg.github.tokenFile);
   cfg.phones.pinHashFile = abs(root, cfg.phones.pinHashFile);
   cfg.stt.script = abs(root, cfg.stt.script);
   cfg.dashboard.tokenFile = abs(root, cfg.dashboard.tokenFile);

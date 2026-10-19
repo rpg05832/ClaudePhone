@@ -19,6 +19,8 @@ import { WhisperTranscriber, SmartTranscriber } from './stt/transcriber.ts';
 import { ClaudeSpeechToText } from './stt/claude.ts';
 import { Worker } from './claude/worker.ts';
 import { createProjectFromPhone } from './projects.ts';
+import { GitHubRepos } from './github.ts';
+import { CloudSessions } from './cloud-sessions.ts';
 import { PinLockout, loadPinHash } from './util/pin.ts';
 import { PermissionBroker } from './claude/broker.ts';
 import { Notifier } from './notify/notifier.ts';
@@ -283,7 +285,11 @@ async function downloadRecording(yemotPath: string, prefix: string): Promise<str
   return local;
 }
 
+const github = new GitHubRepos({ tokenFile: cfg.github.tokenFile, parent: () => cfg.projects.newProjectsParent, store });
+const cloud = new CloudSessions({ sessions: () => cfg.cloud.sessions, claudeExe: () => claudeExe });
 const flow = new PhoneFlow({
+  cloud: { list: () => cloud.list(), send: (id, t) => cloud.send(id, t) },
+  github: { enabled: () => github.hasToken(), list: () => github.list(), open: (n) => github.open(n) },
   store, tasks,
   allowedPhones: () => cfg.phones.allowed,
   pinHash: () => loadPinHash(cfg.phones.pinHashFile),
@@ -359,7 +365,7 @@ const dash = startDashboard({
     sttChanged: () => { if (localSttInstalled) whisper.warmup().catch(e => logError('stt', e, 'warmup')); },
     scanMcp: () => discoverMcp(query as any, cfg.projects.newProjectsParent && existsSync(cfg.projects.newProjectsParent) ? cfg.projects.newProjectsParent : AGENT_ROOT),
     listChrome: () => listChromeBrowsers(query as any, cfg.projects.newProjectsParent && existsSync(cfg.projects.newProjectsParent) ? cfg.projects.newProjectsParent : AGENT_ROOT),
-    updater, location,
+    updater, location, github,
     ensureProject: (folder) => ensureProjectForFolder(folder),
     createProject: (name) => createProjectFromPhone(store, cfg.projects.newProjectsParent, name, cfg.projects.initGit),
     kickWorker: () => worker.kick(),
