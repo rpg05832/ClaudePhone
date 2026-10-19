@@ -17,6 +17,7 @@ import type { ProjectsLocation } from '../projects-location.ts';
 import { pickFolder } from './open.ts';
 import type { McpScan } from '../claude/mcp.ts';
 import type { ChromeBrowser, ChromeSettings } from '../claude/chrome.ts';
+import type { GitHubRepos } from '../github.ts';
 import { log } from '../log.ts';
 
 export interface ActionDeps {
@@ -53,6 +54,8 @@ export interface ActionDeps {
   scanMcp?: () => Promise<McpScan>;
   /** רשימת הדפדפנים שמחוברים ל-Claude in Chrome (הרצה קצרה של Claude עם --chrome) */
   listChrome?: () => Promise<ChromeBrowser[]>;
+  /** מאגרי GitHub: טוקן וחיבור. */
+  github?: GitHubRepos;
   /** אחרי מעבר ל-ivrit-ai: טעינת המודל מראש */
   sttChanged?: () => void;
 }
@@ -110,6 +113,21 @@ export class DashboardActions {
       saveUserConfig({ update: patch }, this.d.root ?? AGENT_ROOT);
       if (patch.repo) await u.check();
       return ok(u.state);
+    }
+
+    // חיבור GitHub: טוקן (ריק מוחק). נשמר בקובץ בלבד ולא חוזר ללוח
+    if (path === '/github/status') {
+      const g = this.d.github;
+      if (!g) return bad('לא זמין');
+      if (!g.hasToken()) return ok({ connected: false, login: null });
+      try { return ok({ connected: true, login: await g.login() }); }
+      catch (e) { return ok({ connected: true, login: null, error: e instanceof Error ? e.message : String(e) }); }
+    }
+    if (path === '/github/token') {
+      const g = this.d.github;
+      if (!g) return bad('לא זמין');
+      try { const login = await g.saveToken(String(body?.token ?? '')); return ok({ connected: !!login, login }); }
+      catch (e) { return bad(e instanceof Error ? e.message : String(e)); }
     }
 
     // תיקיית הפרויקטים: בחירת מיקום, והעברה של הפרויקטים הקיימים (לבחירה)
