@@ -19,7 +19,7 @@
 <div dir="ltr">
 
 ```
-curl -fsSL https://github.com/rpg05832/ClaudePhone/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/shmuel-sinay/ClaudePhone/releases/latest/download/install.sh | bash
 ```
 </div>
 

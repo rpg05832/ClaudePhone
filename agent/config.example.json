@@ -14,5 +14,5 @@
   "phoneServer": { "port": 7789, "path": "/yemot" },
   "tunnel": { "mode": "quick", "cloudflaredPath": "", "publicUrl": "" },
   "dataDir": "data",
-  "update": { "repo": "rpg05832/ClaudePhone", "apiBase": "https://api.github.com", "checkHours": 6, "auto": false }
+  "update": { "repo": "shmuel-sinay/ClaudePhone", "apiBase": "https://api.github.com", "checkHours": 6, "auto": true }
 }
