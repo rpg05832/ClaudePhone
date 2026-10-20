@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import type { Config } from '../config.ts';
 import { saveUserConfig, readSecretFile, AGENT_ROOT } from '../config.ts';
 import type { Store, EditMode } from '../store/db.ts';
@@ -39,6 +40,8 @@ export interface SetupStatus {
   mode: 'setup' | 'running';
   done: { claude: boolean; yemot: boolean; phones: boolean; pin: boolean; projects: boolean; finished: boolean };
   yemot: { extension: string };
+  /** איך ימות מגיעים למחשב: מנהרת Cloudflare (quick), או כתובת ציבורית של המשתמש (none) + הנתיב שימות פונים אליו */
+  tunnel: { mode: 'quick' | 'none'; publicUrl: string; path: string; port: number };
   phones: string[];
   projectsParent: string;
   claudeProjectsDir: string | null;
@@ -52,6 +55,17 @@ export interface SetupStatus {
 
 export function needsSetup(cfg: Config): boolean {
   return !readSecretFile(cfg.yemot.tokenFile) || !cfg.yemot.chatExtension || !cfg.phones.allowed.length || !loadPinHash(cfg.phones.pinHashFile);
+}
+
+/** כתובת ציבורית של שרת המשתמש: https בלבד, בלי נתיב ובלי לוכסן בסוף (הנתיב מתווסף מההגדרה phoneServer.path). */
+export function normalizePublicUrl(raw: string): string | null {
+  const s = raw.trim().replace(/\/+$/, '');
+  if (!s) return null;
+  let u: URL;
+  try { u = new URL(/^[a-z]+:\/\//i.test(s) ? s : 'https://' + s); } catch { return null; }
+  if (u.protocol !== 'https:' || !u.hostname.includes('.') || u.search || u.hash || u.username) return null;
+  if (/^(localhost|127\.|10\.|192\.168\.|0\.)/.test(u.hostname) || u.hostname.endsWith('.trycloudflare.com')) return null;
+  return u.origin + (u.pathname === '/' ? '' : u.pathname.replace(/\/+$/, ''));
 }
 
 /** מספר טלפון ישראלי בפורמט שימות שולחת (05XXXXXXXX / 0XXXXXXXX). */
@@ -81,6 +95,7 @@ export class SetupApi {
         finished: !needsSetup(c) && (c as any).setupDone === true,
       },
       yemot: { extension: c.yemot.chatExtension },
+      tunnel: { mode: c.tunnel.mode === 'none' ? 'none' : 'quick', publicUrl: c.tunnel.publicUrl, path: c.phoneServer.path, port: c.phoneServer.port },
       phones: c.phones.allowed.map(p => '•••' + p.slice(-4)),
       projectsParent: /\\USER\\/.test(c.projects.newProjectsParent) ? defaultProjectsParent() : c.projects.newProjectsParent,
       claudeProjectsDir: claudeProjectsDir(),
@@ -99,7 +114,7 @@ export class SetupApi {
 
     if (method === 'GET' && path === '/status') return ok(this.status());
     if (method === 'GET' && path === '/checks') {
-      return ok(await systemReport({ dataDir: c.dataDir, cloudflaredPath: this.cloudflaredPath(), pythonConfigured: c.stt.python }));
+      return ok(await systemReport({ dataDir: c.dataDir, cloudflaredPath: this.cloudflaredPath(), pythonConfigured: c.stt.python, tunnelMode: c.tunnel.mode }));
     }
     if (method === 'GET' && path === '/known-folders') {
       const parent = this.status().projectsParent;
@@ -154,6 +169,27 @@ export class SetupApi {
         saveUserConfig({ yemot: { chatExtension: ext } }, this.root);
         log('setup', `ימות: מערכת ${session.systemNumber}, שלוחה ${ext}`);
         return ok({ saved: true, systemNumber: session.systemNumber, units: session.units, existingType: type });
+      }
+
+      // 0.7.7: איך ימות מגיעים למחשב. 'quick': מנהרת Cloudflare (ברירת המחדל, למחשב ביתי). 'none': לשרת עם כתובת
+      // ציבורית משלו (דומיין עם https לפני הפורט המקומי); אין מנהרה, והשלוחה בימות נרשמת ישר לכתובת הזאת.
+      case '/connection': {
+        const mode = body?.mode === 'none' ? 'none' : body?.mode === 'quick' ? 'quick' : null;
+        if (!mode) return bad('מצב חיבור לא תקין');
+        if (mode === 'quick') {
+          c.tunnel.mode = 'quick';
+          saveUserConfig({ tunnel: { mode: 'quick' } }, this.root);
+          return ok({ saved: true, mode, publicUrl: c.tunnel.publicUrl, path: c.phoneServer.path, port: c.phoneServer.port });
+        }
+        const publicUrl = normalizePublicUrl(String(body?.publicUrl ?? ''));
+        if (!publicUrl) return bad('כתובת לא תקינה. צריך כתובת https מלאה של השרת, למשל https://claude.example.co.il');
+        // הכתובת קבועה (לא מתחלפת כמו במנהרה), ולכן הנתיב שימות פונים אליו מקבל חלק אקראי: בלעדיו כל מי שמנחש את
+        // הכתובת יכול לשלוח בקשות כאילו הוא ימות.
+        if (c.phoneServer.path === '/yemot') c.phoneServer.path = '/yemot-' + randomBytes(8).toString('hex');
+        c.tunnel.mode = 'none'; c.tunnel.publicUrl = publicUrl;
+        saveUserConfig({ tunnel: { mode: 'none', publicUrl }, phoneServer: { path: c.phoneServer.path } }, this.root);
+        log('setup', `חיבור: כתובת ציבורית ${publicUrl}`);
+        return ok({ saved: true, mode, publicUrl, path: c.phoneServer.path, port: c.phoneServer.port });
       }
 
       case '/phones': {

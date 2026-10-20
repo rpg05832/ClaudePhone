@@ -1,5 +1,6 @@
 // אשף ההגדרה: בדיקת המחשב (אפיון 7). קריאה בלבד: שום דבר לא מותקן כאן.
 import { execFile } from 'node:child_process';
+import { checkStaleClaudeLock } from '../claude/lock.ts';
 import { existsSync, readdirSync, statfsSync, statSync, lstatSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir, release } from 'node:os';
@@ -151,7 +152,7 @@ export async function checkNetwork(): Promise<NetCheck[]> {
 
 export interface SystemReport { items: CheckItem[]; network: NetCheck[]; python: { path: string | null; version: string | null; fasterWhisper: string | null } }
 
-export async function systemReport(opts: { dataDir: string; cloudflaredPath: string; pythonConfigured?: string }): Promise<SystemReport> {
+export async function systemReport(opts: { dataDir: string; cloudflaredPath: string; pythonConfigured?: string; tunnelMode?: 'quick' | 'none'; claudeLockPath?: string }): Promise<SystemReport> {
   const items: CheckItem[] = [];
   items.push(osCheck());
 
@@ -164,6 +165,9 @@ export async function systemReport(opts: { dataDir: string; cloudflaredPath: str
   const auth = await claudeAuth();
   items.push({ id: 'claude', name: 'Claude Code', required: true, state: sdkClaudeExe() ? 'ok' : 'missing', detail: sdkClaudeExe() ? 'כלול בהתקנה' : 'רכיב Claude חסר; התקן מחדש' });
   items.push({ id: 'claudeAuth', name: 'התחברות ל-Claude', required: true, state: auth.loggedIn ? 'ok' : 'missing', detail: auth.detail });
+  // 0.7.7: נעילה תקועה (~/.claude.lock עם קבצים) מונעת חידוש התחברות. הסוכן מזיז אותה בהפעלה; כאן רק מדווחים אם נשארה.
+  const lock = checkStaleClaudeLock(opts.claudeLockPath);
+  if (lock.stale) items.push({ id: 'claudeLock', name: 'נעילת Claude Code', required: true, state: 'error', detail: lock.detail + '. התוכנה מזיזה אותה הצידה בהפעלה הבאה' });
 
   const py = await findPython(opts.pythonConfigured);
   // 0.7.4: התמלול נעשה דרך Claude (ההתחברות של Claude Code). ivrit-ai במחשב הוא גיבוי, ולכן שלושת הרכיבים שלו רשות.
@@ -172,7 +176,9 @@ export async function systemReport(opts: { dataDir: string; cloudflaredPath: str
   const model = modelPresent();
   items.push({ id: 'model', name: 'מודל תמלול עברית ivrit-ai (גיבוי, רשות)', required: false, state: model ? 'ok' : 'missing', detail: model ? 'הורד' : 'לא הורד', installable: !model, sizeMb: 1600 });
   const cf = existsSync(opts.cloudflaredPath);
-  items.push({ id: 'cloudflared', name: 'רכיב המנהרה (cloudflared)', required: true, state: cf ? 'ok' : 'missing', detail: cf ? 'קיים' : 'חסר', installable: !cf, sizeMb: 60 });
+  // 0.7.7: בשרת עם כתובת ציבורית משלו (tunnel.mode = none) אין מנהרה, והרכיב לא נדרש
+  const ownUrl = opts.tunnelMode === 'none';
+  items.push({ id: 'cloudflared', name: ownUrl ? 'רכיב המנהרה (cloudflared) (לא נדרש: כתובת ציבורית משלך)' : 'רכיב המנהרה (cloudflared)', required: !ownUrl, state: cf ? 'ok' : ownUrl ? 'optional' : 'missing', detail: cf ? 'קיים' : ownUrl ? 'לא מותקן, ולא צריך' : 'חסר', installable: !cf, sizeMb: 60 });
 
   const git = await run('git', ['--version'], 10_000);
   items.push({ id: 'git', name: 'Git (לא חובה)', required: false, state: git.code === 0 ? 'ok' : 'optional', detail: git.code === 0 ? git.out : 'לא מותקן. מומלץ, כדי ש-Claude ינהל היסטוריית שינויים בפרויקטים' });

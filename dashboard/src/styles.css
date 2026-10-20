@@ -394,3 +394,7 @@ kbd { display: inline-block; min-width: 1.7em; padding: 0 6px; font: 600 13px/1.
 .mcp .chrome-pick label { display: block; font-weight: 600; margin-bottom: 6px; }
 .mcp .chrome-pick .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .mcp .chrome-pick select { min-width: 220px; max-width: 100%; }
+/* אשף: בחירת החיבור לימות (0.7.7) */
+.help label.check { display: block; margin: 8px 0; line-height: 1.5; }
+.subfield { margin: 8px 0 4px 24px; }
+.okbox code, .hint code { direction: ltr; unicode-bidi: embed; background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 4px; }

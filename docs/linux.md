@@ -36,6 +36,38 @@ curl -fsSL https://github.com/rpg05832/ClaudePhone/releases/latest/download/inst
 | יומן התוכנה | `tail -f ~/.local/share/claudephone/agent/data/agent.log` |
 | הסרה (שואלת אם למחוק גם את ההגדרות והנתונים) | `~/.local/share/claudephone/uninstall.sh` |
 
+## איך ימות מגיעים לשרת: מנהרה או כתובת משלך
+ימות המשיח צריכים לפנות לתוכנה דרך האינטרנט. יש שתי דרכים, ובוחרים ביניהן באשף, בשלב "ימות המשיח" (אפשר לפתוח את האשף שוב מהלוח בכל זמן):
+
+**מנהרה אוטומטית (ברירת המחדל).** התוכנה פותחת מנהרת Cloudflare (`cloudflared tunnel`) ומקבלת כתובת `https://....trycloudflare.com`. ימות פונים לכתובת הזאת, ו-Cloudflare מעביר את הבקשה למחשב דרך חיבור יוצא שהתוכנה פתחה. בלי פתיחת פורטים, בלי דומיין, בלי חשבון Cloudflare, חינם. הכתובת מתחלפת בכל הפעלה, ואחרי כל התחברות התוכנה מעדכנת את השלוחה בימות לבד. Cloudflare הוא רק צינור: הוא לא רואה את ההקלטות (החיבור מוצפן), ושום דבר לא עובר דרך שרת של מישהו אחר. זאת הדרך הנכונה למחשב ביתי מאחורי ראוטר או נטפרי, והיא עובדת גם בשרת.
+
+**כתובת ציבורית משלך.** לשרת שיש לו דומיין ותעודת https. בוחרים באשף "כתובת ציבורית משלי" ומקלידים את הכתובת (למשל `https://claude.example.co.il`). אז אין מנהרה, ורכיב cloudflared לא נדרש: השלוחה בימות נרשמת ישר לכתובת שלך, והתוכנה מציגה את הכתובת המלאה שימות יפנו אליה, בצורה `https://claude.example.co.il/yemot-<16 תווים אקראיים>`. החלק האקראי הוא הסוד שמבדיל בין בקשות של ימות לכל אחד אחר (במנהרה הכתובת עצמה אקראית), אז לא לפרסם אותו.
+
+התוכנה מאזינה רק מקומית, ב-`127.0.0.1:7789`, ולכן צריך reverse proxy עם https לפניה. למשל ב-Caddy (מסדר תעודה לבד):
+```
+claude.example.co.il {
+    reverse_proxy 127.0.0.1:7789
+}
+```
+או ב-nginx (עם תעודה, למשל מ-certbot):
+```
+server {
+    listen 443 ssl;
+    server_name claude.example.co.il;
+    ssl_certificate     /etc/letsencrypt/live/claude.example.co.il/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/claude.example.co.il/privkey.pem;
+    location / { proxy_pass http://127.0.0.1:7789; }
+}
+```
+בדיקה: בלוח הבקרה, "הגדרות ותקינות", השורה "כתובת ציבורית (בלי מנהרה)" ירוקה, ובשיחה לשלוחה נשמע התפריט. אם ימות מחזירים שגיאה, בודקים שהדומיין מגיע לשרת (`curl -I https://claude.example.co.il/` מחזיר תשובה מהתוכנה, 404 זה בסדר) ושהתעודה תקפה.
+
+מי שמעדיף להגדיר בקובץ: ב-`~/.local/share/claudephone/agent/config.json`:
+```
+"tunnel": { "mode": "none", "publicUrl": "https://claude.example.co.il" },
+"phoneServer": { "path": "/yemot-<מחרוזת אקראית>" }
+```
+ואז `systemctl --user restart claudephone`.
+
 ## מה שונה מ-Windows
 - אין Claude Desktop רשמי ללינוקס, ולכן אין המשך של שיחות Cowork. שיחות Claude Code רגילות עובדות.
 - בשרת בלי מסך: "פתח בטרמינל", "פתח תיקייה" ובחירת תיקייה בחלון אינם זמינים, ומופיעה הודעה שמסבירה למה. את תיקיית הפרויקטים כותבים ידנית.
@@ -71,5 +103,6 @@ curl -fsSL https://github.com/rpg05832/ClaudePhone/releases/latest/download/inst
 ### צריך לבדוק רק בשרת
 16. [ ] **גישה מרחוק:** פקודת ה-SSH שההתקנה הדפיסה פותחת את הלוח מהמחשב שלך.
 17. [ ] **arm64** (למשל שרת Oracle Ampere או Raspberry Pi 64 ביט): ההתקנה בוחרת את הקובץ הנכון והכל עובד.
+18. [ ] **כתובת ציבורית משלך** (שרת עם דומיין): אחרי הבחירה באשף ו-reverse proxy, השלוחה עונה בלי מנהרה, והשורה "כתובת ציבורית" בלוח ירוקה.
 
 </div>

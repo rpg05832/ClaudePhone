@@ -85,7 +85,7 @@ function LineStrip({ ov }: { ov: Overview | null }) {
   const stops: { name: string; ok: boolean | null; detail: string }[] = [
     { name: 'הטלפון', ok: h.yemot?.ok ?? null, detail: h.yemot?.ok ? `שלוחה ${h.yemot.extension}` : 'השלוחה לא מחוברת' },
     { name: 'ימות המשיח', ok: h.yemot?.ok ?? null, detail: h.yemot?.ok ? `עודכנה ${when(h.yemot.updatedAt)}` : 'ממתין' },
-    { name: 'מנהרה', ok: h.tunnel?.ok ?? null, detail: h.tunnel?.ok ? `פעילה ${when(h.tunnel.since)}` : h.tunnel?.error ?? 'מתחברת' },
+    { name: h.tunnel?.mode === 'none' ? 'כתובת ציבורית' : 'מנהרה', ok: h.tunnel?.ok ?? null, detail: h.tunnel?.ok ? `פעילה ${when(h.tunnel.since)}` : h.tunnel?.error ?? 'מתחברת' },
     { name: 'המחשב', ok: live, detail: live ? 'הסוכן פועל' : 'אין חיבור לסוכן' },
     { name: 'תמלול', ok: h.stt?.ok ? true : null, detail: h.stt?.ok ? (h.stt?.engine === 'local' ? 'ivrit-ai' : 'Claude') : 'לא זמין' },
     { name: 'Claude', ok: h.claude ? true : null, detail: h.claude?.busyWith ? 'עובד על משימה' : 'פנוי' },
@@ -496,10 +496,10 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
   const h = ov.health;
   const rows: [string, boolean | null, string][] = [
     ['הסוכן', true, `${h.agent?.version ? 'גרסה ' + h.agent.version + ' · ' : ''}פועל מ-${full(h.agent?.startedAt)} · Node ${h.agent?.node ?? ''} · Agent SDK ${h.agent?.sdk ?? '?'}`],
-    ['מנהרת Cloudflare', h.tunnel?.ok, h.tunnel?.ok ? `${h.tunnel.url}` : h.tunnel?.error ?? 'לא מחוברת'],
+    [h.tunnel?.mode === 'none' ? 'כתובת ציבורית (בלי מנהרה)' : 'מנהרת Cloudflare', h.tunnel?.ok, h.tunnel?.ok ? `${h.tunnel.url}` : h.tunnel?.error ?? 'לא מחוברת'],
     ['ימות המשיח', h.yemot?.ok, h.yemot?.ok ? `שלוחה ${h.yemot.extension} עודכנה ${when(h.yemot.updatedAt)}` : 'השלוחה לא עודכנה'],
     ['תמלול', h.stt?.ok, h.stt?.detail ?? (h.stt?.ok ? 'מוכן' : 'לא זמין')],
-    ['Claude Code', true, `${h.claude?.claudeCodeVersion ? 'גרסה ' + h.claude.claudeCodeVersion : ''}${h.claude?.busyWith ? ' · עובד על משימה' : ' · פנוי'}`],
+    ['Claude Code', true, `${h.claude?.claudeCodeVersion ? 'גרסה ' + h.claude.claudeCodeVersion : ''}${h.claude?.busyWith ? ' · עובד על משימה' : ' · פנוי'}${h.claude?.lockFixedAt ? ' · נעילה תקועה הוזזה הצידה ' + when(h.claude.lockFixedAt) : ''}`],
     ...(h.freeTzintuk ? [['צינתוקים', h.freeTzintuk.ready ? (h.freeTzintuk.free ? true : null) : false, freeTzintukText(h.freeTzintuk)] as [string, boolean | null, string]] : []),
   ];
   return (

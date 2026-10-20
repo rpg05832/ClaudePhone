@@ -10,7 +10,7 @@ import { Tasks } from '../src/store/tasks.ts';
 import { ClaudeHistory } from '../src/history/claude-history.ts';
 import { ConversationIndex } from '../src/history/conversations.ts';
 import { startDashboard, isLocalOrigin } from '../src/web/server.ts';
-import { SetupApi, needsSetup, normalizePhone } from '../src/setup/routes.ts';
+import { SetupApi, needsSetup, normalizePhone, normalizePublicUrl } from '../src/setup/routes.ts';
 import { verifyPin, loadPinHash } from '../src/util/pin.ts';
 
 function tempRoot() {
@@ -170,4 +170,49 @@ test('אשף: פרויקט שהוסר מהבחירה יוצא מהטלפון', a
   assert.equal((await api.handle('POST', '/projects', { parent, extra: [y] })).code, 200);
   assert.deepEqual(store.listProjects(true).map(p => p.path), [y]);
   assert.equal(store.listProjects().length, 2);
+});
+
+test('אשף: חיבור לימות דרך כתובת ציבורית משלי (שרת) במקום מנהרה', async () => {
+  const root = tempRoot();
+  const cfg = loadConfig(root);
+  const api = new SetupApi({ cfg, store: new Store(':memory:'), mode: 'setup', launcherPath: null, makeShortcut: async () => '', dashboardUrl: () => 'http://x', restart: () => {}, root });
+  assert.equal(api.status().tunnel.mode, 'quick');
+
+  // כתובות לא תקינות: http, מקומית, מנהרה, ריק
+  for (const bad of ['', 'http://example.co.il', 'https://localhost', 'https://192.168.1.5', 'https://abc.trycloudflare.com', 'not a url'])
+    assert.equal((await api.handle('POST', '/connection', { mode: 'none', publicUrl: bad })).code, 400, bad);
+  assert.equal((await api.handle('POST', '/connection', { mode: 'x' })).code, 400);
+
+  const r = await api.handle('POST', '/connection', { mode: 'none', publicUrl: 'claude.example.co.il/' });
+  assert.equal(r.code, 200);
+  const j = r.json as any;
+  assert.equal(j.publicUrl, 'https://claude.example.co.il');
+  // הנתיב מקבל חלק אקראי (הכתובת קבועה, אז הנתיב הוא הסוד)
+  assert.match(j.path, /^\/yemot-[0-9a-f]{16}$/);
+  assert.equal(j.port, cfg.phoneServer.port);
+  assert.equal(cfg.tunnel.mode, 'none');
+  assert.equal(cfg.phoneServer.path, j.path);
+  // נשמר ונטען מחדש; הנתיב לא מתחלף בשמירה חוזרת
+  const again = loadConfig(root);
+  assert.equal(again.tunnel.mode, 'none');
+  assert.equal(again.tunnel.publicUrl, 'https://claude.example.co.il');
+  assert.equal(again.phoneServer.path, j.path);
+  const r2 = await api.handle('POST', '/connection', { mode: 'none', publicUrl: 'https://other.example.co.il' });
+  assert.equal((r2.json as any).path, j.path);
+  assert.equal(api.status().tunnel.publicUrl, 'https://other.example.co.il');
+
+  // חזרה למנהרה: הכתובת נשמרת לשימוש חוזר, המצב quick
+  assert.equal((await api.handle('POST', '/connection', { mode: 'quick' })).code, 200);
+  assert.equal(loadConfig(root).tunnel.mode, 'quick');
+  assert.equal(api.status().tunnel.mode, 'quick');
+});
+
+test('נרמול כתובת ציבורית', () => {
+  assert.equal(normalizePublicUrl('https://a.example.co.il/'), 'https://a.example.co.il');
+  assert.equal(normalizePublicUrl('a.example.co.il'), 'https://a.example.co.il');
+  assert.equal(normalizePublicUrl('https://a.example.co.il/claude/'), 'https://a.example.co.il/claude');
+  assert.equal(normalizePublicUrl('https://a.example.co.il:8443'), 'https://a.example.co.il:8443');
+  assert.equal(normalizePublicUrl('https://a.example.co.il/?x=1'), null);
+  assert.equal(normalizePublicUrl('ftp://a.example.co.il'), null);
+  assert.equal(normalizePublicUrl('https://user@a.example.co.il'), null);
 });

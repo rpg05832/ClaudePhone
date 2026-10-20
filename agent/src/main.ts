@@ -30,6 +30,7 @@ import { CoworkHistory } from './history/cowork.ts';
 import { splitSummary, cleanForSpeech } from './claude/runner.ts';
 import { discoverMcp, serverLabel } from './claude/mcp.ts';
 import { CHROME_SLUG, CHROME_LABEL, chromePolicy, listChromeBrowsers } from './claude/chrome.ts';
+import { checkStaleClaudeLock } from './claude/lock.ts';
 import { startDashboard, loadOrCreateToken, maskPhone } from './web/server.ts';
 import { DashboardActions } from './web/actions.ts';
 import { openDashboardWindow, desktopShortcutScript, startupScript } from './web/open.ts';
@@ -273,7 +274,7 @@ const worker = new Worker({
 });
 
 // מצב חי לשורת המצב בלוח הבקרה
-const state = { startedAt: new Date().toISOString(), tunnelSince: null as string | null, extensionUpdatedAt: null as string | null, lastTunnelError: null as string | null };
+const state = { startedAt: new Date().toISOString(), tunnelSince: null as string | null, extensionUpdatedAt: null as string | null, lastTunnelError: null as string | null, lockFixedAt: null as string | null };
 
 async function downloadRecording(yemotPath: string, prefix: string): Promise<string> {
   const buf = await yemot.downloadFile(yemotPath);
@@ -373,10 +374,10 @@ const dash = startDashboard({
   }),
   health: () => ({
     agent: { ok: true, startedAt: state.startedAt, node: process.version, sdk: sdkVersion, version: appVersion },
-    tunnel: { ok: !!currentUrl, url: currentUrl || null, since: state.tunnelSince, error: state.lastTunnelError },
+    tunnel: { ok: !!currentUrl, mode: cfg.tunnel.mode === 'none' ? 'none' : 'quick', url: currentUrl ? currentUrl + (cfg.tunnel.mode === 'none' ? cfg.phoneServer.path : '') : null, since: state.tunnelSince, error: state.lastTunnelError },
     yemot: { ok: !!state.extensionUpdatedAt, extension: cfg.yemot.chatExtension, updatedAt: state.extensionUpdatedAt },
     stt: { ...stt.status(), model: cfg.stt.model, last: stt.lastEngine },
-    claude: { ok: true, busyWith: worker.busyWith, claudeCodeVersion: history.list().find(h => h.version)?.version ?? null },
+    claude: { ok: true, busyWith: worker.busyWith, claudeCodeVersion: history.list().find(h => h.version)?.version ?? null, lockFixedAt: state.lockFixedAt },
     phone: { activeCalls: flow.activeCalls() },
     quiet: quietState(new Date(), quiet),
     freeTzintuk: freeTzintuk ? { ...freeTzintuk.status(), ready: freeTzintukExtensionReady, folder: freeTzintukFolder } : null,
@@ -398,6 +399,16 @@ function cleanRecordings(): void {
 // נבדק כל 6 שעות; 0 ימים = לא מוחקים (אפשר לשנות בלוח בלי אתחול)
 cleanRecordings(); setInterval(cleanRecordings, 6 * 3600_000).unref();
 
+// 0.7.7: נעילה תקועה של Claude Code (~/.claude.lock עם קבצים בפנים) מונעת חידוש התחברות, וכל משימה נכשלת.
+// בודקים בהפעלה וכל שעה, ומזיזים הצידה (lock.ts).
+function fixClaudeLock(): void {
+  try {
+    const r = checkStaleClaudeLock(undefined, { fix: true });
+    if (r.stale) { log('claude', r.detail); if (r.movedTo) state.lockFixedAt = new Date().toISOString(); }
+  } catch (e) { logError('claude', e, 'בדיקת נעילה'); }
+}
+fixClaudeLock(); setInterval(fixClaudeLock, 3600_000).unref();
+
 // ---------- מנהרה + עדכון השלוחה בימות ----------
 let currentUrl = '';
 let stopping = false;
@@ -405,8 +416,19 @@ let currentTunnelStop: () => void = () => {};
 const ttsSettings = () => { const s = store.getSettings(); return { voice: s.voice, rate: s.rate }; };
 async function connectTunnel(attempt = 1): Promise<void> {
   if (cfg.tunnel.mode === 'none') {
+    // כתובת ציבורית של המשתמש (שרת עם דומיין): אין מנהרה, השלוחה נרשמת ישר לכתובת
     currentUrl = cfg.tunnel.publicUrl;
-    if (currentUrl) { await yemot.setApiExtension(cfg.yemot.chatExtension, currentUrl + cfg.phoneServer.path, ttsSettings()); state.extensionUpdatedAt = new Date().toISOString(); void ensureFreeTzintukExtension(); }
+    if (!currentUrl) { state.lastTunnelError = 'לא הוגדרה כתובת ציבורית (tunnel.publicUrl)'; logError('tunnel', new Error(state.lastTunnelError)); return; }
+    try {
+      await yemot.setApiExtension(cfg.yemot.chatExtension, currentUrl + cfg.phoneServer.path, ttsSettings());
+      state.extensionUpdatedAt = new Date().toISOString(); state.tunnelSince = state.tunnelSince ?? new Date().toISOString(); state.lastTunnelError = null;
+      log('main', `שלוחה ${cfg.yemot.chatExtension} מחוברת לכתובת ${currentUrl}${cfg.phoneServer.path}`);
+      void ensureFreeTzintukExtension();
+    } catch (e) {
+      logError('tunnel', e, `ניסיון ${attempt}`);
+      state.lastTunnelError = e instanceof Error ? e.message : String(e);
+      setTimeout(() => connectTunnel(attempt + 1), Math.min(60_000, 5000 * attempt));
+    }
     return;
   }
   try {

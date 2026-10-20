@@ -29,6 +29,7 @@ interface Status {
   mode: 'setup' | 'running';
   done: { claude: boolean; yemot: boolean; phones: boolean; pin: boolean; projects: boolean; finished: boolean };
   yemot: { extension: string }; phones: string[]; projectsParent: string; projectsExtra: string[];
+  tunnel?: { mode: 'quick' | 'none'; publicUrl: string; path: string; port: number };
   claudeProjectsDir?: string | null; desktopProjectsDir?: string;
   platform?: string; osName?: string; gui?: boolean;
 }
@@ -319,12 +320,54 @@ function Yemot({ status, next, back }: { status: Status | null; next: () => void
       )}
       {saved && <p className="okbox">✓ התחבר למערכת {saved.systemNumber}{saved.units !== null ? ` · יתרת יחידות: ${saved.units}` : ''}. השלוחה {ext} תוגדר בהפעלה.</p>}
       {err && <div className="error">{err}</div>}
+      <Connection status={status} />
       <div className="wiz-nav">
         {saved ? <button className="btn primary" type="button" onClick={next}>המשך</button> : <button className="btn primary" type="submit" disabled={busy || !!confirm}>{busy ? 'בודק…' : 'בדוק ושמור'}</button>}
         {already && !saved && <button className="btn" type="button" onClick={next}>השאר כמו שהוא</button>}
         <button className="btn" type="button" onClick={back}>חזרה</button>
       </div>
     </form>
+  );
+}
+
+// איך ימות מגיעים למחשב (0.7.7). ברירת המחדל: מנהרת Cloudflare, בלי הגדרות. לשרת עם דומיין: כתובת ציבורית משלו.
+function Connection({ status }: { status: Status | null }) {
+  const [mode, setMode] = useState<'quick' | 'none'>(status?.tunnel?.mode ?? 'quick');
+  const [url, setUrl] = useState(status?.tunnel?.publicUrl ?? '');
+  const [saved, setSaved] = useState<{ publicUrl: string; path: string; port: number } | null>(status?.tunnel?.mode === 'none' && status.tunnel.publicUrl ? status.tunnel : null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { if (status?.tunnel) { setMode(status.tunnel.mode); setUrl(status.tunnel.publicUrl); if (status.tunnel.mode === 'none' && status.tunnel.publicUrl) setSaved(status.tunnel); } }, [status?.tunnel?.mode, status?.tunnel?.publicUrl]);
+  const choose = async (m: 'quick' | 'none') => {
+    setMode(m); setErr(null);
+    if (m === 'quick') { try { await post('/connection', { mode: 'quick' }); setSaved(null); } catch (e: any) { setErr(e.message); } }
+  };
+  const saveUrl = async () => {
+    setBusy(true); setErr(null);
+    try { const r = await post<any>('/connection', { mode: 'none', publicUrl: url }); setSaved(r); setUrl(r.publicUrl); }
+    catch (e: any) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <details className="help" open={mode === 'none'}>
+      <summary>איך ימות מגיעים למחשב הזה? (ברירת המחדל מתאימה לרוב)</summary>
+      <label className="check"><input type="radio" name="conn" checked={mode === 'quick'} onChange={() => choose('quick')} /> <b>מנהרה אוטומטית</b> (Cloudflare). למחשב ביתי, מאחורי ראוטר או נטפרי. בלי הגדרות, בלי פתיחת פורטים; הכתובת מתחלפת בכל הפעלה והתוכנה מעדכנת את השלוחה לבד.</label>
+      <label className="check"><input type="radio" name="conn" checked={mode === 'none'} onChange={() => choose('none')} /> <b>כתובת ציבורית משלי</b>. לשרת עם דומיין ו-https. בלי מנהרה: השלוחה בימות נרשמת ישר לכתובת הזאת.</label>
+      {mode === 'none' && (
+        <div className="subfield">
+          <label className="field"><span>הכתובת הציבורית של השרת</span>
+            <input value={url} onChange={e => { setUrl(e.target.value); setSaved(null); }} dir="ltr" placeholder="https://claude.example.co.il" /></label>
+          <div className="wiz-nav"><button type="button" className="btn" onClick={saveUrl} disabled={busy || !url.trim()}>{busy ? 'שומר…' : 'שמור כתובת'}</button></div>
+          {saved && (
+            <div className="okbox">
+              <div>✓ ימות יפנו אל: <code dir="ltr">{saved.publicUrl}{saved.path}</code></div>
+              <div className="hint">התוכנה מאזינה רק מקומית, ב-<code dir="ltr">127.0.0.1:{saved.port}</code>. הגדר בשרת reverse proxy (nginx או Caddy) עם https שמעביר את הדומיין לפורט הזה. הנתיב כולל חלק אקראי: הוא הסוד שמבדיל בקשות של ימות מכל אחד אחר, אז לא לפרסם אותו.</div>
+            </div>
+          )}
+        </div>
+      )}
+      {err && <div className="error">{err}</div>}
+    </details>
   );
 }
 
@@ -593,7 +636,7 @@ function Finish({ status, back }: { status: Status | null; back: () => void }) {
           {notes.length > 0 && <ul className="wiz-list">{notes.map(n => <li key={n}>{n}</li>)}</ul>}
           <ul className="health">
             <li>{ok(phase === 'running')}<b>הסוכן</b><span>{phase === 'running' ? 'פועל' : phase === 'starting' ? 'עולה…' : 'לא עלה'}</span></li>
-            <li>{ok(health?.tunnel?.ok ?? null)}<b>חיבור לאינטרנט (מנהרה)</b><span>{health?.tunnel?.ok ? 'פעיל' : health?.tunnel?.error ?? 'מתחבר…'}</span></li>
+            <li>{ok(health?.tunnel?.ok ?? null)}<b>{health?.tunnel?.mode === 'none' ? 'חיבור לאינטרנט (כתובת ציבורית)' : 'חיבור לאינטרנט (מנהרה)'}</b><span>{health?.tunnel?.ok ? 'פעיל' : health?.tunnel?.error ?? 'מתחבר…'}</span></li>
             <li>{ok(health?.yemot?.ok ?? null)}<b>השלוחה בימות</b><span>{health?.yemot?.ok ? `שלוחה ${health.yemot.extension} מחוברת` : 'מתעדכנת…'}</span></li>
             <li>{ok(health?.stt?.ok ?? null)}<b>תמלול</b><span>{health?.stt?.detail ?? (health?.stt?.ok ? 'מוכן' : 'נטען (בפעם הראשונה עד דקה)…')}</span></li>
           </ul>
