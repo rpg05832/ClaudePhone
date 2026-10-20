@@ -578,6 +578,8 @@ function SettingsForm({ s }: { s: Overview['settings'] }) {
       </div>
       <div className="hint">תמלול: כשהמנוע שנבחר נכשל, לא מזהה דיבור, או (ב-Claude) נתקע על חזרה, ההקלטה מתומללת אוטומטית במנוע השני, אם הוא זמין. ivrit-ai זמין רק אם הותקן באשף ההגדרה.</div>
       <label className="check"><input type="checkbox" checked={s.notify === 'on'} onChange={e => save({ notify: e.target.checked ? 'on' : 'off' })} /> צינתוק לטלפון כשמשימה מהטלפון מסתיימת או מחכה לאישור</label>
+      <label className="check"><input type="checkbox" checked={(s.pin ?? 'required') === 'required'} onChange={e => save({ pin: e.target.checked ? 'required' : 'off' })} /> לדרוש קוד אישי בכניסה מהטלפון</label>
+      {(s.pin ?? 'required') === 'off' && <div className="hint">בלי קוד, כל מי שמתקשר מאחד הטלפונים המורשים נכנס ישר לתפריט ויכול לשלוח ל-Claude משימות במחשב. מתאים רק אם הטלפון תמיד בידיים שלך. הקוד עצמו נשמר, ואפשר להחזיר את הדרישה בכל רגע.</div>}
       {msg && <div className={msg.ok ? 'hint' : 'error'}>{msg.text}</div>}
     </div>
   );

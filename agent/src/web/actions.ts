@@ -273,6 +273,7 @@ export class DashboardActions {
       if (body?.effort !== undefined) { if (!EFFORTS.some(m => m.id === body.effort)) return bad('רמת חשיבה לא תקינה'); this.d.store.setSetting('effort', body.effort); }
       if (body?.model !== undefined) { if (!MODELS.some(m => m.id === body.model)) return bad('מודל לא תקין'); this.d.store.setSetting('model', body.model); }
       if (body?.readback !== undefined) { if (!READBACKS.some(m => m.id === body.readback)) return bad('ערך לא תקין'); this.d.store.setSetting('readback', body.readback); }
+      if (body?.pin !== undefined) { if (body.pin !== 'required' && body.pin !== 'off') return bad('ערך לא תקין'); this.d.store.setSetting('pin', body.pin); }
       if (body?.stt !== undefined) { if (!STT_ENGINES.some(m => m.id === body.stt)) return bad('מנוע תמלול לא תקין'); this.d.store.setSetting('stt', body.stt); if (body.stt === 'local') this.d.sttChanged?.(); }
       const after = this.d.store.getSettings();
       let warning: string | null = null;

@@ -24,6 +24,8 @@ export interface FlowDeps {
   tasks: Tasks;
   allowedPhones: () => string[];
   pinHash: () => string | null;
+  /** כניסה ממספר מורשה בלי קוד (הגדרה בלוח הבקרה; ברירת המחדל: קוד נדרש) */
+  pinRequired?: () => boolean;
   lockout: PinLockout;
   limits: { recordSeconds: number; transcriptConfirmSeconds: number; queuedTaskHours: number; waitOnCallMinutes: number };
   /** מוריד הקלטה מימות ומתמלל. מחזיר טקסט (ריק אם לא זוהה דיבור). */
@@ -65,7 +67,7 @@ type Target = { kind: 'new'; projectId: string } | { kind: 'continue'; conversat
 type Screen =
   | 'pin' | 'main'
   | 'convList' | 'projList' | 'liveList'
-  | 'newProjMode' | 'newProjName' | 'newProjConfirm'
+  | 'newProjMode' | 'newProjName' | 'newProjRecorded' | 'newProjTranscribing' | 'newProjConfirm'
   | 'record' | 'transcribing' | 'confirmTranscript'
   | 'waiting'
   | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback' | 'settingsStt'
@@ -86,6 +88,8 @@ interface CallState {
   transcribeDone?: boolean;
   transcribeError?: string;
   newProjName?: string;
+  /** שם פרויקט שהוקלט: הקובץ בימות והתמלול (במקום זיהוי הדיבור של ימות, שעולה יחידות) */
+  newProjRec?: { file: string; done: boolean; text?: string; error?: string };
   resultIds?: string[];         // תוצאות להשמעה בתפריט 4
   resultIdx?: number;
   resultMode?: ReadbackChoice;  // מה מוקרא בשיחה הזו: התשובה המלאה או הסיכום (מקש 4 מחליף; מתחיל מההגדרה)
@@ -202,6 +206,8 @@ export class PhoneFlow {
       case 'projList': return this.onProjList(c, input);
       case 'newProjMode': return this.onNewProjMode(c, input);
       case 'newProjName': return this.onNewProjName(c, input);
+      case 'newProjRecorded': return this.onNewProjRecorded(c);
+      case 'newProjTranscribing': return this.onNewProjTranscribing(c);
       case 'newProjConfirm': return this.onNewProjConfirm(c, input);
       case 'record': return this.onRecorded(c, input);
       case 'transcribing': return this.onTranscribing(c);
@@ -241,6 +247,14 @@ export class PhoneFlow {
     if (this.d.lockout.isLocked(c.phone)) {
       this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'pin_locked' });
       return r().say('הכניסה נחסמה זמנית. נסה שוב מאוחר יותר').hangup();
+    }
+    if (input === undefined && this.d.pinRequired && !this.d.pinRequired()) {
+      // המשתמש ביטל את הקוד: המספר המורשה (זיהוי השיחה) הוא הכניסה
+      c.authed = true;
+      this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'login_no_pin' });
+      const pending = this.pendingFor(c);
+      if (pending.length) { c.approvalReturn = 'main'; return this.presentApproval(c, pending[0], this.loginSummary()); }
+      return this.mainMenu(c, this.loginSummary());
     }
     if (input === undefined) {
       return r().readDigits('שלום. הקש את הקוד האישי וסולמית', this.next(c), { max: 8, min: 4, timeout: 20 });
@@ -435,9 +449,39 @@ export class PhoneFlow {
     if (input === '0') { c.page = 0; return this.projListScreen(c); }
     c.screen = 'newProjName';
     c.newProjByKeyboard = input === '2';
-    if (input === '1') return r().readVoice('אמור את שם הפרויקט אחרי הצליל', this.next(c));
+    if (input === '1') return this.newProjRecordScreen(c);
     if (input === '2') return r().readText('הקלד את שם הפרויקט וסולמית', this.next(c), { max: 40 });
     return this.newProjModeScreen(c, 'בחירה לא תקינה');
+  }
+
+  // שם בקול: הקלטה ותמלול במתמלל שלנו (0.7.6). עד כה דרך זיהוי הדיבור של ימות, שעולה יחידות (הערה בפורום).
+  private newProjRecordScreen(c: CallState, prefix = ''): YemotResponse {
+    c.recCount += 1;
+    const file = `cp-${c.callId.replace(/[^A-Za-z0-9]/g, '').slice(-10)}-p${c.recCount}`;
+    c.newProjRec = { file: `/${c.ext}/${file}.wav`, done: false };
+    c.screen = 'newProjRecorded';
+    const res = r();
+    if (prefix) res.say(prefix);
+    return res.record('אמור את שם הפרויקט אחרי הצליל. בסיום הקש סולמית', this.next(c), `/${c.ext}`, file);
+  }
+
+  private onNewProjRecorded(c: CallState): YemotResponse {
+    const rec = c.newProjRec!;
+    this.d.transcribeAudio(rec.file)
+      .then(t => { rec.text = t.trim(); rec.done = true; })
+      .catch(e => { logError('stt', e, 'project name'); rec.error = 'התמלול נכשל'; rec.done = true; });
+    c.screen = 'newProjTranscribing'; c.waitStart = Date.now();
+    return r().say('מתמלל').goto(`/${c.ext}`);
+  }
+
+  private async onNewProjTranscribing(c: CallState): Promise<YemotResponse> {
+    const rec = c.newProjRec!;
+    const deadline = Date.now() + 9000;
+    while (!rec.done && Date.now() < deadline) await this.sleep(250);
+    if (!rec.done) return r().goto(`/${c.ext}`);
+    if (rec.error || !rec.text) return this.newProjRecordScreen(c, `${rec.error ?? 'לא זוהה דיבור'}. אמור שוב.`);
+    c.screen = 'newProjName';
+    return this.onNewProjName(c, rec.text);
   }
 
   private async onNewProjName(c: CallState, input: string | undefined): Promise<YemotResponse> {

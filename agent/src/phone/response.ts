@@ -64,12 +64,6 @@ export class YemotResponse {
     return this;
   }
 
-  /** זיהוי דיבור מובנה של ימות: הטקסט חוזר בפרמטר name. */
-  readVoice(prompt: string, name: string): this {
-    this.parts.push(`read=t-${san(prompt)}=${name},no,voice`);
-    return this;
-  }
-
   /** הקלטה לקובץ בשלוחה: נשמר כ-<folder>/<file>.wav; הנתיב חוזר בפרמטר name. */
   record(prompt: string, name: string, folder: string, file: string): this {
     this.parts.push(`read=t-${san(prompt)}=${name},no,record,${folder},${file},no,yes`);

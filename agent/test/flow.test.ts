@@ -164,12 +164,25 @@ test('ניתוק אחרי שהתוצאה הוקראה מסמן אותה כנשמ
   assert.equal(tasks.get(t.id)!.heard, true);
 });
 
-test('שם פרויקט שנאמר בקול מוקרא לאישור', async () => {
-  const { flow } = setup();
+test('שם פרויקט שנאמר בקול: הקלטה, תמלול במתמלל שלנו (לא של ימות), ואישור', async () => {
+  const { flow } = setup({ transcribeAudio: async () => 'חנות חדשה' });
   const c = call(flow);
   await c.send(); await c.send(PIN); await c.send('3'); await c.send('1');
-  assert.match(await c.send('1'), /voice/);
-  assert.match(await c.send('בדיקה'), /שם הפרויקט: בדיקה.*לאישור/);
+  const rec = await c.send('1');
+  assert.match(rec, /record/);
+  assert.doesNotMatch(rec, /,voice/);
+  assert.match(await c.send('/9/cp-x.wav'), /מתמלל/);
+  assert.match(await c.send(), /שם הפרויקט: חנות חדשה.*לאישור/);
+});
+
+test('כניסה בלי קוד: כשההגדרה כבויה, מספר מורשה נכנס ישר לתפריט; כברירת מחדל נדרש קוד', async () => {
+  const { flow } = setup({ pinRequired: () => false });
+  const c = call(flow);
+  const body = await c.send();
+  assert.doesNotMatch(body, /הקש את הקוד/);
+  assert.match(body, /להמשך שיחה 2/);
+  const { flow: f2 } = setup({ pinRequired: () => true });
+  assert.match(await call(f2).send(), /הקש את הקוד/);
 });
 
 test('הגדרות: מעבר לקריאה בלבד וחזרה, והמצב מוקרא בכניסה', async () => {
@@ -202,7 +215,7 @@ test('הגדרות: בחירת קול ומהירות מוחלת על השלוח�
   await c.send('3');
   await c.send('3');
   assert.deepEqual(voiceCalls.at(-1), ['Sivan', 4]);
-  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude' });
+  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude', pin: 'required' });
 });
 
 function doneTask(tasks: Tasks, projId: string, resultText: string, resultSummary: string) {

@@ -51,7 +51,7 @@ export const PHONE_KIND: Record<string, string> = {
   call_start: 'שיחה נכנסת', pin_ok: 'כניסה עם PIN', pin_fail: 'PIN שגוי', pin_locked: 'כניסה חסומה', rejected_number: 'מספר לא מורשה',
   recorded: 'הקלטה', task_sent: 'משימה נשלחה', hangup: 'ניתוק', project_created: 'פרויקט חדש', decision: 'החלטה על בקשה',
   stop_requested: 'בקשת עצירה', setting_editMode: 'שינוי מצב עבודה', setting_voice: 'שינוי קול', setting_notify: 'צינתוקים', setting_model: 'שינוי מודל',
-  setting_effort: 'שינוי רמת חשיבה', setting_readback: 'שינוי מה מוקרא בסיום', setting_stt: 'שינוי מנוע התמלול', free_tzintuk_signup: 'הרשמה לצינתוקים חינמיים',
+  setting_effort: 'שינוי רמת חשיבה', setting_readback: 'שינוי מה מוקרא בסיום', setting_stt: 'שינוי מנוע התמלול', free_tzintuk_signup: 'הרשמה לצינתוקים חינמיים', login_no_pin: 'כניסה בלי קוד (מספר מורשה)',
   duplicate_event: 'אירוע כפול (סונן)', no_pin_configured: 'אין PIN מוגדר',
 };
 

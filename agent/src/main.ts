@@ -287,6 +287,7 @@ const flow = new PhoneFlow({
   store, tasks,
   allowedPhones: () => cfg.phones.allowed,
   pinHash: () => loadPinHash(cfg.phones.pinHashFile),
+  pinRequired: () => store.getSettings().pin !== 'off',
   lockout: new PinLockout(cfg.phones.lockoutAttempts, cfg.phones.lockoutMinutes),
   limits: cfg.limits,
   transcribeRecording: async (yemotPath, taskId) => {
