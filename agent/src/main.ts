@@ -289,7 +289,7 @@ const github = new GitHubRepos({ tokenFile: cfg.github.tokenFile, parent: () => 
 const cloud = new CloudSessions({ sessions: () => cfg.cloud.sessions, claudeExe: () => claudeExe });
 const flow = new PhoneFlow({
   cloud: { list: () => cloud.list(), send: (id, t) => cloud.send(id, t) },
-  github: { enabled: () => github.hasToken(), list: () => github.list(), open: (n) => github.open(n) },
+  github: { enabled: () => github.hasToken(), list: () => github.list(), open: (n) => github.open(n), quick: () => cfg.github.quick ?? [] },
   store, tasks,
   allowedPhones: () => cfg.phones.allowed,
   pinHash: () => loadPinHash(cfg.phones.pinHashFile),

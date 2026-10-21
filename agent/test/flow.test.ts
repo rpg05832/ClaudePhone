@@ -430,6 +430,18 @@ test('פרויקט חדש ממאגר GitHub: רשימה, בחירה, שכפול 
   assert.deepEqual(opened, ['me/api']);
 });
 
+test('מאגר מהיר מההגדרות: מקש 4 בפרויקט חדש פותח אותו ישירות', async () => {
+  const opened: string[] = [];
+  const { flow, store } = setup({ github: { enabled: () => true, list: async () => [], quick: () => [{ fullName: 'me/dl-tool', spokenName: 'הורדות' }],
+    open: async (n) => { opened.push(n); return store.addProject({ name: 'dl-tool', path: '/tmp/gh/dl' }); } } });
+  const c = call(flow);
+  await c.send(); await c.send(PIN); await c.send('3');
+  assert.match(await c.send('1'), /להורדות הקש ארבע/);
+  assert.match(await c.send('4'), /פותח את הורדות/);
+  assert.match(await c.send(), /record,\/9,cp-/);
+  assert.deepEqual(opened, ['me/dl-tool']);
+});
+
 test('בלי טוקן של GitHub אין אפשרות GitHub בתפריט', async () => {
   const { flow } = setup({ github: { enabled: () => false, list: async () => [], open: async () => { throw new Error('x'); } } });
   const c = call(flow);

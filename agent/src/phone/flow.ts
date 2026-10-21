@@ -58,7 +58,9 @@ export interface FlowDeps {
   /** צינתוקים חינמיים: הנתיב של שלוחת ההרשמה (למשל /9/1), והודעה אחרי שהמשתמש הופנה אליה. null: לא מופעל. */
   freeTzintuk?: () => { folder: string; onRedirect: () => void } | null;
   /** מאגרי GitHub כפרויקטים (טוקן בלוח הבקרה). בלי זה, או בלי טוקן: אין אפשרות GitHub בתפריט. */
-  github?: { enabled: () => boolean; list: () => Promise<{ fullName: string; spokenName: string }[]>; open: (fullName: string) => Promise<Project> };
+  github?: { enabled: () => boolean; list: () => Promise<{ fullName: string; spokenName: string }[]>; open: (fullName: string) => Promise<Project>;
+    /** מאגרים מהירים (מההגדרות): מקשים 4 עד 9 בתפריט הפרויקט החדש פותחים אותם ישירות, בלי לעבור על הרשימה. */
+    quick?: () => { fullName: string; spokenName: string }[] };
   /** שיחות ענן: רשימה ושליחת הודעה (חד-כיוונית). בלי זה, או ברשימה ריקה: אין אפשרות ענן. */
   cloud?: { list: () => { id: string; name: string }[]; send: (id: string, text: string) => Promise<void> };
   /** עיכוב (נדרס בבדיקות). */
@@ -530,17 +532,25 @@ export class PhoneFlow {
     const res = r();
     if (prefix) res.say(prefix);
     const gh = this.d.github?.enabled() ? ' לבחירת מאגר מ-GitHub הקש 3.' : '';
-    return res.readDigits(`פרויקט חדש. לאמירת השם הקש 1. להקלדת השם במקלדת הקש 2.${gh} לחזרה 0`, this.next(c), { timeout: 20 });
+    const quick = this.quickRepos().map((x, i) => ` ל${spokenHebrew(x.spokenName)} הקש ${keyWord(i + 4)}.`).join('');
+    return res.readDigits(`פרויקט חדש. לאמירת השם הקש 1. להקלדת השם במקלדת הקש 2.${gh}${quick} לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
   private onNewProjMode(c: CallState, input: string | undefined): YemotResponse {
     if (input === '0') { c.page = 0; return this.projListScreen(c); }
     if (input === '3' && this.d.github?.enabled()) return this.ghListScreen(c, true);
+    const quick = /^[4-9]$/.test(input ?? '') ? this.quickRepos()[Number(input) - 4] : undefined;
+    if (quick) return this.openGhRepo(c, quick);
     c.screen = 'newProjName';
     c.newProjByKeyboard = input === '2';
     if (input === '1') return r().readVoice('אמור את שם הפרויקט אחרי הצליל', this.next(c));
     if (input === '2') return r().readText('הקלד את שם הפרויקט וסולמית', this.next(c), { max: 40 });
     return this.newProjModeScreen(c, 'בחירה לא תקינה');
+  }
+
+  /** מאגרים מהירים מההגדרות: עד שישה, במקשים 4 עד 9. רק כשהחיבור ל-GitHub פעיל. */
+  private quickRepos(): { fullName: string; spokenName: string }[] {
+    return this.d.github?.enabled() ? (this.d.github.quick?.() ?? []).slice(0, 6) : [];
   }
 
   /** מאגרי GitHub: תשעה בכל עמוד, במקשים 1 עד 9. סולמית לעמוד הבא, 0 לחזרה. */
@@ -564,6 +574,10 @@ export class PhoneFlow {
     if (!input) { c.page += 1; return this.ghListScreen(c); }
     const repo = (c.ghRepos ?? [])[c.page * PAGE + Number(input) - 1];
     if (!repo || !/^[1-9]$/.test(input)) return this.ghListScreen(c, false, 'בחירה לא תקינה');
+    return this.openGhRepo(c, repo);
+  }
+
+  private openGhRepo(c: CallState, repo: { fullName: string; spokenName: string }): YemotResponse {
     // שכפול יכול להימשך זמן: רץ ברקע, והשיחה ממתינה עם מוזיקה (כמו בתמלול)
     const job: NonNullable<CallState['ghJob']> = { done: false, since: Date.now() };
     c.ghJob = job;
