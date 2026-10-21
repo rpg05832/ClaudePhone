@@ -21,6 +21,8 @@ import { log, logError } from '../log.ts';
 import { spokenHebrew, keyWord } from './translit.ts';
 
 export interface FlowDeps {
+  /** הודעה חד-פעמית אחרי עדכון גרסה (מוקראת בכניסה, ורק פעם אחת). */
+  whatsNew?: () => string | null;
   store: Store;
   tasks: Tasks;
   allowedPhones: () => string[];
@@ -269,7 +271,7 @@ export class PhoneFlow {
       // בקשות ממתינות מוצגות מיד אחרי הכניסה (אפיון 3: "עדכון קצר על תוצאות ואישורים ממתינים")
       const pending = this.pendingFor(c);
       if (pending.length) { c.approvalReturn = 'main'; return this.presentApproval(c, pending[0], this.loginSummary()); }
-      return this.mainMenu(c, this.loginSummary());
+      return this.mainMenu(c, [this.d.whatsNew?.(), this.loginSummary()].filter(Boolean).join('. '));
     }
     this.d.lockout.recordFailure(c.phone);
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'pin_fail' });

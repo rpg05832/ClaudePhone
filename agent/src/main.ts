@@ -287,7 +287,19 @@ async function downloadRecording(yemotPath: string, prefix: string): Promise<str
 
 const github = new GitHubRepos({ tokenFile: cfg.github.tokenFile, parent: () => cfg.projects.newProjectsParent, store });
 const cloud = new CloudSessions({ sessions: () => cfg.cloud.sessions, claudeExe: () => claudeExe });
+// הודעה חד-פעמית בטלפון אחרי עדכון לגרסה שיש בה חידוש בתפריט (נשמר איזו גרסה כבר הוקראה)
+const NEWS: Record<string, string> = {
+  '0.7.12': 'התעדכנת לגרסה חדשה. שמות מאגרים ומספרי המקשים מוקראים עכשיו בעברית. ובפרויקט חדש, מאגרים מהירים בקשים ארבע ומעלה',
+};
+function whatsNew(): string | null {
+  const file = join(cfg.dataDir, 'announced-version.txt');
+  const last = existsSync(file) ? readFileSync(file, 'utf8').trim() : '';
+  if (!appVersion || last === appVersion) return null;
+  try { writeFileSync(file, appVersion, 'utf8'); } catch { /* ננסה שוב בשיחה הבאה */ }
+  return NEWS[appVersion] ?? null;
+}
 const flow = new PhoneFlow({
+  whatsNew,
   cloud: { list: () => cloud.list(), send: (id, t) => cloud.send(id, t) },
   github: { enabled: () => github.hasToken(), list: () => github.list(), open: (n) => github.open(n), quick: () => cfg.github.quick ?? [] },
   store, tasks,
