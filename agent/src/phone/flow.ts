@@ -18,6 +18,7 @@ const MODE_NAMES: Record<EditMode, string> = {
 import type { Tasks } from '../store/tasks.ts';
 import { verifyPin, PinLockout } from '../util/pin.ts';
 import { log, logError } from '../log.ts';
+import { spokenHebrew, keyWord } from './translit.ts';
 
 export interface FlowDeps {
   store: Store;
@@ -555,7 +556,7 @@ export class PhoneFlow {
     let page = repos.slice(c.page * PAGE, c.page * PAGE + PAGE);
     if (!page.length) { c.page = 0; page = repos.slice(0, PAGE); }
     const more = repos.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
-    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${x.spokenName} הקש ${i + 1}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
+    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${spokenHebrew(x.spokenName)} הקש ${keyWord(i + 1)}`).join('. '), `בחר${more}. לחזרה אפס`], this.next(c), { timeout: 20, min: 0 });
   }
 
   private async onGhList(c: CallState, input: string | undefined): Promise<YemotResponse> {
@@ -571,7 +572,7 @@ export class PhoneFlow {
       .catch(e => { job.error = e instanceof Error ? e.message : 'פתיחת המאגר נכשלה'; })
       .finally(() => { job.done = true; });
     c.screen = 'ghOpening';
-    return r().say(`פותח את ${repo.spokenName}. בפעם הראשונה זה יכול לקחת כמה דקות`).goto(`/${c.ext}`);
+    return r().say(`פותח את ${spokenHebrew(repo.spokenName)}. בפעם הראשונה זה יכול לקחת כמה דקות`).goto(`/${c.ext}`);
   }
 
   private async onGhOpening(c: CallState): Promise<YemotResponse> {
@@ -587,7 +588,7 @@ export class PhoneFlow {
     if (job.error || !job.project) return this.newProjModeScreen(c, job.error ?? 'פתיחת המאגר נכשלה');
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'project_created', detail: `github:${job.project.name}` });
     c.target = { kind: 'new', projectId: job.project.id };
-    return this.recordScreen(c, `הפרויקט ${job.project.spokenName} מוכן.`);
+    return this.recordScreen(c, `הפרויקט ${spokenHebrew(job.project.spokenName)} מוכן.`);
   }
 
   private async onNewProjName(c: CallState, input: string | undefined): Promise<YemotResponse> {
@@ -672,11 +673,15 @@ export class PhoneFlow {
 
   private confirmScreen(c: CallState, prefix = ''): YemotResponse {
     c.screen = 'confirmTranscript';
-    const res = r();
-    if (prefix) res.say(prefix);
-    res.say(`התמלול: ${c.transcript}`);
     const live = c.target?.kind === 'continue' && c.target.conversationId.startsWith('live:');
-    return res.readDigits(`${this.targetDescription(c)}. לשליחה הקש 1. להקלטה מחדש 2. לביטול 3${live ? '' : '. לשליחה עם מודל אחר 4'}`, this.next(c), { timeout: Math.min(this.d.limits.transcriptConfirmSeconds, 60) });
+    // הכול בפקודת קליטה אחת: הקשה באמצע ההקראה נקלטת מיד, ולכן אפשר לשלוח בלי לשמוע את התמלול עד הסוף
+    const texts = [
+      ...(prefix ? [prefix] : []),
+      'לשליחה מיד הקש 1 בכל רגע',
+      `התמלול: ${c.transcript}`,
+      `${this.targetDescription(c)}. לשליחה הקש 1. להקלטה מחדש 2. לביטול 3${live ? '' : '. לשליחה עם מודל אחר 4'}`,
+    ];
+    return r().readAfter(texts, this.next(c), { timeout: Math.min(this.d.limits.transcriptConfirmSeconds, 60) });
   }
 
   private targetDescription(c: CallState): string {
@@ -690,8 +695,9 @@ export class PhoneFlow {
   private onConfirmTranscript(c: CallState, input: string | undefined, sentNote = ''): YemotResponse {
     const task = this.d.tasks.get(c.taskId!);
     if (!task || task.state !== 'awaiting_transcript') return this.mainMenu(c, 'הטיוטה כבר אינה זמינה');
-    const expired = Date.now() - (c.confirmStart ?? Date.now()) > this.d.limits.transcriptConfirmSeconds * 1000 * 2;
-    if (input === '1' && !expired) {
+    // פקיעת הזמן מבטלת טיוטה רק כשלא הוקש כלום: מי שמקיש 1 (גם אחרי הקראה ארוכה) שולח בכל מקרה
+    const expired = !input && Date.now() - (c.confirmStart ?? Date.now()) > this.d.limits.transcriptConfirmSeconds * 1000 * 2;
+    if (input === '1') {
       const queued = this.d.tasks.transition(task.id, 'queued', 'phone', 'אושר בטלפון');
       this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'task_sent', detail: `משימה ${queued.num}` });
       this.d.kickWorker();
@@ -700,7 +706,7 @@ export class PhoneFlow {
       return r().say(`נשלח${sentNote ? ' ' + sentNote : ''}. משימה ${queued.num}. ממתינים לתשובה. אפשר לנתק בכל רגע ולשמוע אותה אחר כך במקש 4`).goto(`/${c.ext}`);
     }
     if (input === '2') return this.recordScreen(c);
-    if (input === '4' && !expired && !(c.target?.kind === 'continue' && c.target.conversationId.startsWith('live:'))) {
+    if (input === '4' && !(c.target?.kind === 'continue' && c.target.conversationId.startsWith('live:'))) {
       c.screen = 'taskModel';
       return r().readDigits(this.modelMenuText(), this.next(c), { timeout: 20 });
     }

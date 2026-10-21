@@ -93,7 +93,7 @@ export function UpdateBox({ u, reload }: { u: UpdateState | null | undefined; re
         <label className="field grow"><span>מאגר העדכונים ב-GitHub</span><input value={repo} onChange={e => setRepo(e.target.value)} dir="ltr" placeholder="owner/repo" /></label>
         {repo !== u.repo && <button className="btn" onClick={saveRepo}>שמור</button>}
       </div>
-      <p className="hint">התוכנה בודקת כל כמה שעות אם יש גרסה חדשה ב-Releases של המאגר. המאגר צריך להיות ציבורי, או לפחות ה-Releases שבו. ההגדרות, הפרויקטים וההיסטוריה נשמרים בעדכון.</p>
+      <p className="hint">התוכנה בודקת כל רבע שעה אם יש גרסה חדשה ב-Releases של המאגר. המאגר צריך להיות ציבורי, או לפחות ה-Releases שבו. ההגדרות, הפרויקטים וההיסטוריה נשמרים בעדכון.</p>
       {msg && <div className={msg.ok ? 'hint' : 'error'}>{msg.text}</div>}
     </div>
   );

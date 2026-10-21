@@ -58,7 +58,7 @@ test('רשימת מאגרים: ארכיון מוסר, שם מוקרא בלי מ�
     { full_name: 'bad name', name: 'x' },
   ]);
   await gh.saveToken(TOKEN);
-  assert.deepEqual(await gh.list(), [{ fullName: 'me/my-site', name: 'my-site', spokenName: 'my site', private: true }]);
+  assert.deepEqual(await gh.list(), [{ fullName: 'me/my-site', name: 'my-site', spokenName: 'מיי סייט', private: true }]);
 });
 
 test('פתיחת מאגר: שכפול ורישום פרויקט, בלי הטוקן בכתובת, ובפעם השנייה pull', async () => {
@@ -66,7 +66,7 @@ test('פתיחת מאגר: שכפול ורישום פרויקט, בלי הטוק
   await gh.saveToken(TOKEN);
   const p = await gh.open('me/my-site');
   assert.equal(p.path, join(parent, 'my-site'));
-  assert.equal(p.spokenName, 'my site');
+  assert.equal(p.spokenName, 'מיי סייט');
   const clone = gitCalls.find(c => c.args[0] === 'clone')!;
   assert.ok(clone.args.includes('https://github.com/me/my-site.git'));
   assert.ok(!gitCalls.some(c => c.args.join(' ').includes(TOKEN)));

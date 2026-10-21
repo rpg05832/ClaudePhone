@@ -8,6 +8,7 @@ import type { Project } from '@claude-phone/shared';
 import type { Store } from './store/db.ts';
 import { readSecretFile } from './config.ts';
 import { log } from './log.ts';
+import { spokenHebrew } from './phone/translit.ts';
 
 export interface RepoInfo { fullName: string; name: string; spokenName: string; private: boolean }
 
@@ -31,7 +32,7 @@ function runGit(args: string[], cwd?: string): Promise<string> {
     (err, out, errOut) => err ? rej(new Error((errOut || err.message).trim().split('\n').pop())) : res(out)));
 }
 
-export function spokenRepoName(name: string): string { return name.replace(/[-_.]+/g, ' ').trim() || name; }
+export function spokenRepoName(name: string): string { return spokenHebrew(name); }
 
 export class GitHubRepos {
   private cache: { at: number; repos: RepoInfo[] } | null = null;

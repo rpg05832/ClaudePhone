@@ -16,5 +16,5 @@
   "phoneServer": { "port": 7789, "path": "/yemot" },
   "tunnel": { "mode": "quick", "cloudflaredPath": "", "publicUrl": "" },
   "dataDir": "data",
-  "update": { "repo": "shmuel-sinay/ClaudePhone", "apiBase": "https://api.github.com", "checkHours": 6, "auto": true }
+  "update": { "repo": "shmuel-sinay/ClaudePhone", "apiBase": "https://api.github.com", "checkHours": 0.25, "auto": true }
 }

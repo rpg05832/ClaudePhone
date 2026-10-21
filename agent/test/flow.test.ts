@@ -423,9 +423,9 @@ test('פרויקט חדש ממאגר GitHub: רשימה, בחירה, שכפול 
   const c = call(flow);
   await c.send(); await c.send(PIN); await c.send('3');
   assert.match(await c.send('1'), /לבחירת מאגר מ.?GitHub הקש 3/);
-  assert.match(await c.send('3'), /לsite one הקש 1.*לapi הקש 2/);
+  assert.match(await c.send('3'), /לסייט און הקש אחד.*לאיי פי איי הקש שניים/);
   assert.match(await c.send('9'), /בחירה לא תקינה/);
-  assert.match(await c.send('2'), /פותח את api/);
+  assert.match(await c.send('2'), /פותח את איי פי איי/);
   assert.match(await c.send(), /record,\/9,cp-/);
   assert.deepEqual(opened, ['me/api']);
 });
