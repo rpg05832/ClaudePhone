@@ -63,11 +63,17 @@ function letters(word: string): string {
 
 /** שם באנגלית (גם עם מקפים, קווים תחתונים, נקודות ומספרים) בתעתיק עברי להקראה. מילים בעברית נשארות כמו שהן. */
 export function spokenHebrew(name: string): string {
-  const parts = name.match(/[A-Za-z]+|[0-9]+|[֐-׿]+/g) ?? [];
+  const parts = name.replace(/([a-z])([A-Z])/g, '$1 $2').match(/[A-Za-z]+|[0-9]+|[֐-׿]+/g) ?? [];
   const spoken = parts.map(p => {
     if (/^[0-9]+$/.test(p)) return [...p].map(d => DIGITS[Number(d)]).join(' ');
     if (/^[A-Za-z]+$/.test(p)) return WORDS[p.toLowerCase()] ?? letters(p);
     return p;
   }).filter(Boolean);
   return spoken.join(' ').trim() || name;
+}
+
+/** כותרת שיחה להקראה בתפריט: בעברית, ועד שש מילים ("קלוד פון בעיה בתפריט ..."). */
+export function shortTitle(title: string, words = 6): string {
+  const all = spokenHebrew(title).split(/\s+/).filter(Boolean);
+  return all.slice(0, words).join(' ') + (all.length > words ? '...' : '');
 }

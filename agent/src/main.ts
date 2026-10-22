@@ -289,6 +289,7 @@ const github = new GitHubRepos({ tokenFile: cfg.github.tokenFile, parent: () => 
 const cloud = new CloudSessions({ sessions: () => cfg.cloud.sessions, claudeExe: () => claudeExe });
 // הודעה חד-פעמית בטלפון אחרי עדכון לגרסה שיש בה חידוש בתפריט (נשמר איזו גרסה כבר הוקראה)
 const NEWS: Record<string, string> = {
+  '0.7.13': 'התעדכנת לגרסה חדשה. בתפריטי הבחירה המספר נאמר בסוף, בעברית, וכותרות השיחות קצרות יותר',
   '0.7.12': 'התעדכנת לגרסה חדשה. שמות מאגרים ומספרי המקשים מוקראים עכשיו בעברית. ובפרויקט חדש, מאגרים מהירים בקשים ארבע ומעלה',
 };
 function whatsNew(): string | null {

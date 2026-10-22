@@ -75,7 +75,7 @@ test('שיחה חדשה מקצה לקצה: PIN, פרויקט, הקלטה, תמל
   const c = call(flow);
   assert.match(await c.send(), /הקוד האישי/);
   assert.match(await c.send(PIN), /להמשך שיחה 2/);
-  assert.match(await c.send('3'), /לפרויקט חדש הקש 1.*לאתר הקש 2/);
+  assert.match(await c.send('3'), /לפרויקט חדש הקש אחד.*לאתר הקש שניים/);
   assert.match(await c.send('2'), /record,\/9,cp-/);
   assert.match(await c.send('/9/x.wav'), /go_to_folder=\/9/);
   const confirm = await c.send();
@@ -256,10 +256,10 @@ test('סולמית לבד ברשימה עוברת לעמוד הבא', async () =
   await c.send(); await c.send(PIN);
   // עמוד ראשון: פרויקט חדש במקש 1, ואז שמונה פרויקטים (אתר, פ0..פ6) במקשים 2 עד 9
   const first = await c.send('3');
-  assert.match(first, /לפרויקט חדש הקש 1.*לאתר הקש 2.*לפ6 הקש 9.*לעמוד הבא הקש סולמית/);
+  assert.match(first, /לפרויקט חדש הקש אחד.*לאתר הקש שניים.*לפ שש הקש תשע.*לעמוד הבא הקש סולמית/);
   assert.doesNotMatch(first, /לפ7 הקש/);
   const second = await c.send('EMPTY');
-  assert.match(second, /לפרויקט חדש הקש 1.*לפ7 הקש 2.*לפ11 הקש 6/);
+  assert.match(second, /לפרויקט חדש הקש אחד.*לפ שבע הקש שניים.*לפ אחד אחד הקש שש/);
   assert.match(await c.send('2'), /שיחה חדשה בפרויקט פ7/);
 });
 
@@ -270,11 +270,11 @@ test('רשימת השיחות: מקש 1 פותח שיחה חדשה (רשימת �
   await c.send(); await c.send(PIN);
   const list = await c.send('2');
   assert.match(list, /^read=t-/);
-  assert.match(list, /לשיחה חדשה הקש 1.*2 אתר שיחה א/);
+  assert.match(list, /לשיחה חדשה הקש אחד.*לאתר שיחה א.*הקש שניים/);
   assert.match(await c.send('2'), /המשך השיחה שיחה א.*record/);
   const c2 = call(flow, 'CALL2');
   await c2.send(); await c2.send(PIN); await c2.send('2');
-  assert.match(await c2.send('1'), /לפרויקט חדש הקש 1.*לאתר הקש 2/);
+  assert.match(await c2.send('1'), /לפרויקט חדש הקש אחד.*לאתר הקש שניים/);
 });
 
 function pendingReq(store: StoreT, tasks: Tasks, projId: string, toolName: string, input: any, summary: string) {
@@ -458,7 +458,7 @@ test('שיחת ענן מהטלפון: 8 ואז 2, בחירה, הקלטה, תמל
   const c = call(flow);
   await c.send(); await c.send(PIN);
   assert.match(await c.send('8'), /לשליחת הודעה לשיחת ענן 2/);
-  assert.match(await c.send('2'), /ליוטיוב הקש 2/);
+  assert.match(await c.send('2'), /ליוטיוב הקש שניים/);
   assert.match(await c.send('2'), /record,\/9,cp-/);
   assert.match(await c.send('/9/x.wav'), /go_to_folder=\/9/);
   assert.match(await c.send(), /ליעד: שיחת יוטיוב.*לשליחה הקש 1/);

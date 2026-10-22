@@ -18,7 +18,7 @@ const MODE_NAMES: Record<EditMode, string> = {
 import type { Tasks } from '../store/tasks.ts';
 import { verifyPin, PinLockout } from '../util/pin.ts';
 import { log, logError } from '../log.ts';
-import { spokenHebrew, keyWord } from './translit.ts';
+import { spokenHebrew, keyWord, shortTitle } from './translit.ts';
 
 export interface FlowDeps {
   /** הודעה חד-פעמית אחרי עדכון גרסה (מוקראת בכניסה, ורק פעם אחת). */
@@ -383,10 +383,11 @@ export class PhoneFlow {
     const page = all.slice(c.page * ITEMS, c.page * ITEMS + ITEMS);
     if (!page.length) { c.page = 0; return this.convListScreen(c, 'אין עוד שיחות. חוזרים לעמוד הראשון'); }
     // "שיחה חדשה" תמיד מקש 1 (לבקשת המשתמש, 16.10); השיחות ממקש 2
-    const lines = ['לשיחה חדשה הקש 1', ...page.map((cv, i) => {
+    const lines = ['לשיחה חדשה הקש אחד', ...page.map((cv, i) => {
       const from = cv.source === 'desktop' ? ' מדסקטופ' : cv.source === 'cli' ? ' מהטרמינל' : cv.source === 'vscode' ? ' מויזואל סטודיו' : cv.source === 'cowork' ? ' מקוורק' : '';
       const state = cv.active ? ' פעילה כרגע' : !cv.canContinue ? ' לא זמינה להמשך' : '';
-      return `${i + 2}. ${cv.projectName ?? 'פרויקט לא ידוע'}. ${cv.title}${from}. ${spokenAgo(cv.lastActiveAt)}${state}`;
+      // המספר בסוף ובמילים, והכותרת מקוצרת ובעברית: אחרת הקול עובר לאנגלית וקשה לדעת איזה מקש שייך לאיזו שיחה
+      return `ל${spokenHebrew(cv.projectName ?? 'פרויקט לא ידוע')}. ${shortTitle(cv.title)}${from}. ${spokenAgo(cv.lastActiveAt)}${state}. הקש ${keyWord(i + 2)}`;
     })];
     const more = all.length > (c.page + 1) * ITEMS ? '. לעמוד הבא הקש סולמית' : '';
     // הכל בתוך read: הקשה באמצע ההקראה (גם באמצע "התשובה האחרונה" של שיחה שאי אפשר להמשיך) נקלטת מיד
@@ -447,7 +448,7 @@ export class PhoneFlow {
     let page = all.slice(c.page * PAGE, c.page * PAGE + PAGE);
     if (!page.length) { c.page = 0; page = all.slice(0, PAGE); }
     const more = all.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
-    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${x.name} הקש ${i + 1}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
+    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${spokenHebrew(x.name)} הקש ${keyWord(i + 1)}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
   }
 
   private onCloudList(c: CallState, input: string | undefined): YemotResponse {
@@ -513,7 +514,7 @@ export class PhoneFlow {
     const projects = this.d.store.listMenuProjects();
     const page = projects.slice(c.page * ITEMS, c.page * ITEMS + ITEMS);
     if (!page.length && c.page > 0) { c.page = 0; return this.projListScreen(c, 'אין עוד פרויקטים. חוזרים לעמוד הראשון'); }
-    const lines = ['לפרויקט חדש הקש 1', ...page.map((p, i) => `ל${p.spokenName} הקש ${i + 2}`)];
+    const lines = ['לפרויקט חדש הקש אחד', ...page.map((p, i) => `ל${spokenHebrew(p.spokenName)} הקש ${keyWord(i + 2)}`)];
     const more = projects.length > (c.page + 1) * ITEMS ? '. לעמוד הבא הקש סולמית' : '';
     return r().readAfter([...(prefix ? [prefix] : []), lines.join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
   }
