@@ -75,7 +75,7 @@ test('שיחה חדשה מקצה לקצה: PIN, פרויקט, הקלטה, תמל
   const c = call(flow);
   assert.match(await c.send(), /הקוד האישי/);
   assert.match(await c.send(PIN), /להמשך שיחה 2/);
-  assert.match(await c.send('3'), /לפרויקט חדש הקש 1.*לאתר הקש 2/);
+  assert.match(await c.send('3'), /לפרויקט חדש הקש אחד.*לאתר הקש שניים/);
   assert.match(await c.send('2'), /record,\/9,cp-/);
   assert.match(await c.send('/9/x.wav'), /go_to_folder=\/9/);
   const confirm = await c.send();
@@ -269,10 +269,10 @@ test('סולמית לבד ברשימה עוברת לעמוד הבא', async () =
   await c.send(); await c.send(PIN);
   // עמוד ראשון: פרויקט חדש במקש 1, ואז שמונה פרויקטים (אתר, פ0..פ6) במקשים 2 עד 9
   const first = await c.send('3');
-  assert.match(first, /לפרויקט חדש הקש 1.*לאתר הקש 2.*לפ6 הקש 9.*לעמוד הבא הקש סולמית/);
+  assert.match(first, /לפרויקט חדש הקש אחד.*לאתר הקש שניים.*לפ שש הקש תשע.*לעמוד הבא הקש סולמית/);
   assert.doesNotMatch(first, /לפ7 הקש/);
   const second = await c.send('EMPTY');
-  assert.match(second, /לפרויקט חדש הקש 1.*לפ7 הקש 2.*לפ11 הקש 6/);
+  assert.match(second, /לפרויקט חדש הקש אחד.*לפ שבע הקש שניים.*לפ אחד אחד הקש שש/);
   assert.match(await c.send('2'), /שיחה חדשה בפרויקט פ7/);
 });
 
@@ -283,11 +283,11 @@ test('רשימת השיחות: מקש 1 פותח שיחה חדשה (רשימת �
   await c.send(); await c.send(PIN);
   const list = await c.send('2');
   assert.match(list, /^read=t-/);
-  assert.match(list, /לשיחה חדשה הקש 1.*2 אתר שיחה א/);
+  assert.match(list, /לשיחה חדשה הקש אחד.*לאתר שיחה א.*הקש שניים/);
   assert.match(await c.send('2'), /המשך השיחה שיחה א.*record/);
   const c2 = call(flow, 'CALL2');
   await c2.send(); await c2.send(PIN); await c2.send('2');
-  assert.match(await c2.send('1'), /לפרויקט חדש הקש 1.*לאתר הקש 2/);
+  assert.match(await c2.send('1'), /לפרויקט חדש הקש אחד.*לאתר הקש שניים/);
 });
 
 function pendingReq(store: StoreT, tasks: Tasks, projId: string, toolName: string, input: any, summary: string) {
@@ -436,11 +436,23 @@ test('פרויקט חדש ממאגר GitHub: רשימה, בחירה, שכפול 
   const c = call(flow);
   await c.send(); await c.send(PIN); await c.send('3');
   assert.match(await c.send('1'), /לבחירת מאגר מ.?GitHub הקש 3/);
-  assert.match(await c.send('3'), /לsite one הקש 1.*לapi הקש 2/);
+  assert.match(await c.send('3'), /לסייט און הקש אחד.*לאיי פי איי הקש שניים/);
   assert.match(await c.send('9'), /בחירה לא תקינה/);
-  assert.match(await c.send('2'), /פותח את api/);
+  assert.match(await c.send('2'), /פותח את איי פי איי/);
   assert.match(await c.send(), /record,\/9,cp-/);
   assert.deepEqual(opened, ['me/api']);
+});
+
+test('מאגר מהיר מההגדרות: מקש 4 בפרויקט חדש פותח אותו ישירות', async () => {
+  const opened: string[] = [];
+  const { flow, store } = setup({ github: { enabled: () => true, list: async () => [], quick: () => [{ fullName: 'me/dl-tool', spokenName: 'הורדות' }],
+    open: async (n) => { opened.push(n); return store.addProject({ name: 'dl-tool', path: '/tmp/gh/dl' }); } } });
+  const c = call(flow);
+  await c.send(); await c.send(PIN); await c.send('3');
+  assert.match(await c.send('1'), /להורדות הקש ארבע/);
+  assert.match(await c.send('4'), /פותח את הורדות/);
+  assert.match(await c.send(), /record,\/9,cp-/);
+  assert.deepEqual(opened, ['me/dl-tool']);
 });
 
 test('בלי טוקן של GitHub אין אפשרות GitHub בתפריט', async () => {
@@ -459,7 +471,7 @@ test('שיחת ענן מהטלפון: 8 ואז 2, בחירה, הקלטה, תמל
   const c = call(flow);
   await c.send(); await c.send(PIN);
   assert.match(await c.send('8'), /לשליחת הודעה לשיחת ענן 2/);
-  assert.match(await c.send('2'), /ליוטיוב הקש 2/);
+  assert.match(await c.send('2'), /ליוטיוב הקש שניים/);
   assert.match(await c.send('2'), /record,\/9,cp-/);
   assert.match(await c.send('/9/x.wav'), /go_to_folder=\/9/);
   assert.match(await c.send(), /ליעד: שיחת יוטיוב.*לשליחה הקש 1/);

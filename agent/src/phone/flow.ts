@@ -18,8 +18,11 @@ const MODE_NAMES: Record<EditMode, string> = {
 import type { Tasks } from '../store/tasks.ts';
 import { verifyPin, PinLockout } from '../util/pin.ts';
 import { log, logError } from '../log.ts';
+import { spokenHebrew, keyWord, shortTitle } from './translit.ts';
 
 export interface FlowDeps {
+  /** הודעה חד-פעמית אחרי עדכון גרסה (מוקראת בכניסה, ורק פעם אחת). */
+  whatsNew?: () => string | null;
   store: Store;
   tasks: Tasks;
   allowedPhones: () => string[];
@@ -57,7 +60,9 @@ export interface FlowDeps {
   /** צינתוקים חינמיים: הנתיב של שלוחת ההרשמה (למשל /9/1), והודעה אחרי שהמשתמש הופנה אליה. null: לא מופעל. */
   freeTzintuk?: () => { folder: string; onRedirect: () => void } | null;
   /** מאגרי GitHub כפרויקטים (טוקן בלוח הבקרה). בלי זה, או בלי טוקן: אין אפשרות GitHub בתפריט. */
-  github?: { enabled: () => boolean; list: () => Promise<{ fullName: string; spokenName: string }[]>; open: (fullName: string) => Promise<Project> };
+  github?: { enabled: () => boolean; list: () => Promise<{ fullName: string; spokenName: string }[]>; open: (fullName: string) => Promise<Project>;
+    /** מאגרים מהירים (מההגדרות): מקשים 4 עד 9 בתפריט הפרויקט החדש פותחים אותם ישירות, בלי לעבור על הרשימה. */
+    quick?: () => { fullName: string; spokenName: string }[] };
   /** שיחות ענן: רשימה ושליחת הודעה (חד-כיוונית). בלי זה, או ברשימה ריקה: אין אפשרות ענן. */
   cloud?: { list: () => { id: string; name: string }[]; send: (id: string, text: string) => Promise<void> };
   /** עיכוב (נדרס בבדיקות). */
@@ -269,7 +274,7 @@ export class PhoneFlow {
       // בקשות ממתינות מוצגות מיד אחרי הכניסה (אפיון 3: "עדכון קצר על תוצאות ואישורים ממתינים")
       const pending = this.pendingFor(c);
       if (pending.length) { c.approvalReturn = 'main'; return this.presentApproval(c, pending[0], this.loginSummary()); }
-      return this.mainMenu(c, this.loginSummary());
+      return this.mainMenu(c, [this.d.whatsNew?.(), this.loginSummary()].filter(Boolean).join('. '));
     }
     this.d.lockout.recordFailure(c.phone);
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'pin_fail' });
@@ -381,10 +386,11 @@ export class PhoneFlow {
     const page = all.slice(c.page * ITEMS, c.page * ITEMS + ITEMS);
     if (!page.length) { c.page = 0; return this.convListScreen(c, 'אין עוד שיחות. חוזרים לעמוד הראשון'); }
     // "שיחה חדשה" תמיד מקש 1 (לבקשת המשתמש, 16.10); השיחות ממקש 2
-    const lines = ['לשיחה חדשה הקש 1', ...page.map((cv, i) => {
+    const lines = ['לשיחה חדשה הקש אחד', ...page.map((cv, i) => {
       const from = cv.source === 'desktop' ? ' מדסקטופ' : cv.source === 'cli' ? ' מהטרמינל' : cv.source === 'vscode' ? ' מויזואל סטודיו' : cv.source === 'cowork' ? ' מקוורק' : '';
       const state = cv.active ? ' פעילה כרגע' : !cv.canContinue ? ' לא זמינה להמשך' : '';
-      return `${i + 2}. ${cv.projectName ?? 'פרויקט לא ידוע'}. ${cv.title}${from}. ${spokenAgo(cv.lastActiveAt)}${state}`;
+      // המספר בסוף ובמילים, והכותרת מקוצרת ובעברית: אחרת הקול עובר לאנגלית וקשה לדעת איזה מקש שייך לאיזו שיחה
+      return `ל${spokenHebrew(cv.projectName ?? 'פרויקט לא ידוע')}. ${shortTitle(cv.title)}${from}. ${spokenAgo(cv.lastActiveAt)}${state}. הקש ${keyWord(i + 2)}`;
     })];
     const more = all.length > (c.page + 1) * ITEMS ? '. לעמוד הבא הקש סולמית' : '';
     // הכל בתוך read: הקשה באמצע ההקראה (גם באמצע "התשובה האחרונה" של שיחה שאי אפשר להמשיך) נקלטת מיד
@@ -445,7 +451,7 @@ export class PhoneFlow {
     let page = all.slice(c.page * PAGE, c.page * PAGE + PAGE);
     if (!page.length) { c.page = 0; page = all.slice(0, PAGE); }
     const more = all.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
-    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${x.name} הקש ${i + 1}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
+    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${spokenHebrew(x.name)} הקש ${keyWord(i + 1)}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
   }
 
   private onCloudList(c: CallState, input: string | undefined): YemotResponse {
@@ -511,7 +517,7 @@ export class PhoneFlow {
     const projects = this.d.store.listMenuProjects();
     const page = projects.slice(c.page * ITEMS, c.page * ITEMS + ITEMS);
     if (!page.length && c.page > 0) { c.page = 0; return this.projListScreen(c, 'אין עוד פרויקטים. חוזרים לעמוד הראשון'); }
-    const lines = ['לפרויקט חדש הקש 1', ...page.map((p, i) => `ל${p.spokenName} הקש ${i + 2}`)];
+    const lines = ['לפרויקט חדש הקש אחד', ...page.map((p, i) => `ל${spokenHebrew(p.spokenName)} הקש ${keyWord(i + 2)}`)];
     const more = projects.length > (c.page + 1) * ITEMS ? '. לעמוד הבא הקש סולמית' : '';
     return r().readAfter([...(prefix ? [prefix] : []), lines.join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
   }
@@ -532,18 +538,26 @@ export class PhoneFlow {
     const res = r();
     if (prefix) res.say(prefix);
     const gh = this.d.github?.enabled() ? ' לבחירת מאגר מ-GitHub הקש 3.' : '';
-    return res.readDigits(`פרויקט חדש. לאמירת השם הקש 1. להקלדת השם במקלדת הקש 2.${gh} לחזרה 0`, this.next(c), { timeout: 20 });
+    const quick = this.quickRepos().map((x, i) => ` ל${spokenHebrew(x.spokenName)} הקש ${keyWord(i + 4)}.`).join('');
+    return res.readDigits(`פרויקט חדש. לאמירת השם הקש 1. להקלדת השם במקלדת הקש 2.${gh}${quick} לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
   private onNewProjMode(c: CallState, input: string | undefined): YemotResponse {
     if (input === '0') { c.page = 0; return this.projListScreen(c); }
     if (input === '3' && this.d.github?.enabled()) return this.ghListScreen(c, true);
+    const quick = /^[4-9]$/.test(input ?? '') ? this.quickRepos()[Number(input) - 4] : undefined;
+    if (quick) return this.openGhRepo(c, quick);
     c.newProjByKeyboard = input === '2';
     // שם בקול: הקלטה ותמלול במחשב (לא זיהוי הדיבור של ימות, שעולה יחידות)
     if (input === '1') return this.newProjRecordScreen(c);
     c.screen = 'newProjName';
     if (input === '2') return r().readText('הקלד את שם הפרויקט וסולמית', this.next(c), { max: 40 });
     return this.newProjModeScreen(c, 'בחירה לא תקינה');
+  }
+
+  /** מאגרים מהירים מההגדרות: עד שישה, במקשים 4 עד 9. רק כשהחיבור ל-GitHub פעיל. */
+  private quickRepos(): { fullName: string; spokenName: string }[] {
+    return this.d.github?.enabled() ? (this.d.github.quick?.() ?? []).slice(0, 6) : [];
   }
 
   /** מאגרי GitHub: תשעה בכל עמוד, במקשים 1 עד 9. סולמית לעמוד הבא, 0 לחזרה. */
@@ -559,7 +573,7 @@ export class PhoneFlow {
     let page = repos.slice(c.page * PAGE, c.page * PAGE + PAGE);
     if (!page.length) { c.page = 0; page = repos.slice(0, PAGE); }
     const more = repos.length > (c.page + 1) * PAGE ? '. לעמוד הבא הקש סולמית' : '';
-    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${x.spokenName} הקש ${i + 1}`).join('. '), `בחר${more}. לחזרה 0`], this.next(c), { timeout: 20, min: 0 });
+    return r().readAfter([...(prefix ? [prefix] : []), page.map((x, i) => `ל${spokenHebrew(x.spokenName)} הקש ${keyWord(i + 1)}`).join('. '), `בחר${more}. לחזרה אפס`], this.next(c), { timeout: 20, min: 0 });
   }
 
   private async onGhList(c: CallState, input: string | undefined): Promise<YemotResponse> {
@@ -567,6 +581,10 @@ export class PhoneFlow {
     if (!input) { c.page += 1; return this.ghListScreen(c); }
     const repo = (c.ghRepos ?? [])[c.page * PAGE + Number(input) - 1];
     if (!repo || !/^[1-9]$/.test(input)) return this.ghListScreen(c, false, 'בחירה לא תקינה');
+    return this.openGhRepo(c, repo);
+  }
+
+  private openGhRepo(c: CallState, repo: { fullName: string; spokenName: string }): YemotResponse {
     // שכפול יכול להימשך זמן: רץ ברקע, והשיחה ממתינה עם מוזיקה (כמו בתמלול)
     const job: NonNullable<CallState['ghJob']> = { done: false, since: Date.now() };
     c.ghJob = job;
@@ -575,7 +593,7 @@ export class PhoneFlow {
       .catch(e => { job.error = e instanceof Error ? e.message : 'פתיחת המאגר נכשלה'; })
       .finally(() => { job.done = true; });
     c.screen = 'ghOpening';
-    return r().say(`פותח את ${repo.spokenName}. בפעם הראשונה זה יכול לקחת כמה דקות`).goto(`/${c.ext}`);
+    return r().say(`פותח את ${spokenHebrew(repo.spokenName)}. בפעם הראשונה זה יכול לקחת כמה דקות`).goto(`/${c.ext}`);
   }
 
   private async onGhOpening(c: CallState): Promise<YemotResponse> {
@@ -591,7 +609,7 @@ export class PhoneFlow {
     if (job.error || !job.project) return this.newProjModeScreen(c, job.error ?? 'פתיחת המאגר נכשלה');
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'project_created', detail: `github:${job.project.name}` });
     c.target = { kind: 'new', projectId: job.project.id };
-    return this.recordScreen(c, `הפרויקט ${job.project.spokenName} מוכן.`);
+    return this.recordScreen(c, `הפרויקט ${spokenHebrew(job.project.spokenName)} מוכן.`);
   }
 
   private newProjRecordScreen(c: CallState, prefix = ''): YemotResponse {
@@ -705,11 +723,15 @@ export class PhoneFlow {
 
   private confirmScreen(c: CallState, prefix = ''): YemotResponse {
     c.screen = 'confirmTranscript';
-    const res = r();
-    if (prefix) res.say(prefix);
-    res.say(`התמלול: ${c.transcript}`);
     const live = c.target?.kind === 'continue' && c.target.conversationId.startsWith('live:');
-    return res.readDigits(`${this.targetDescription(c)}. לשליחה הקש 1. להקלטה מחדש 2. לביטול 3${live ? '' : '. לשליחה עם מודל אחר 4'}`, this.next(c), { timeout: Math.min(this.d.limits.transcriptConfirmSeconds, 60) });
+    // הכול בפקודת קליטה אחת: הקשה באמצע ההקראה נקלטת מיד, ולכן אפשר לשלוח בלי לשמוע את התמלול עד הסוף
+    const texts = [
+      ...(prefix ? [prefix] : []),
+      'לשליחה מיד הקש 1 בכל רגע',
+      `התמלול: ${c.transcript}`,
+      `${this.targetDescription(c)}. לשליחה הקש 1. להקלטה מחדש 2. לביטול 3${live ? '' : '. לשליחה עם מודל אחר 4'}`,
+    ];
+    return r().readAfter(texts, this.next(c), { timeout: Math.min(this.d.limits.transcriptConfirmSeconds, 60) });
   }
 
   private targetDescription(c: CallState): string {
@@ -723,8 +745,9 @@ export class PhoneFlow {
   private onConfirmTranscript(c: CallState, input: string | undefined, sentNote = ''): YemotResponse {
     const task = this.d.tasks.get(c.taskId!);
     if (!task || task.state !== 'awaiting_transcript') return this.mainMenu(c, 'הטיוטה כבר אינה זמינה');
-    const expired = Date.now() - (c.confirmStart ?? Date.now()) > this.d.limits.transcriptConfirmSeconds * 1000 * 2;
-    if (input === '1' && !expired) {
+    // פקיעת הזמן מבטלת טיוטה רק כשלא הוקש כלום: מי שמקיש 1 (גם אחרי הקראה ארוכה) שולח בכל מקרה
+    const expired = !input && Date.now() - (c.confirmStart ?? Date.now()) > this.d.limits.transcriptConfirmSeconds * 1000 * 2;
+    if (input === '1') {
       const queued = this.d.tasks.transition(task.id, 'queued', 'phone', 'אושר בטלפון');
       this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'task_sent', detail: `משימה ${queued.num}` });
       this.d.kickWorker();
@@ -733,7 +756,7 @@ export class PhoneFlow {
       return r().say(`נשלח${sentNote ? ' ' + sentNote : ''}. משימה ${queued.num}. ממתינים לתשובה. אפשר לנתק בכל רגע ולשמוע אותה אחר כך במקש 4`).goto(`/${c.ext}`);
     }
     if (input === '2') return this.recordScreen(c);
-    if (input === '4' && !expired && !(c.target?.kind === 'continue' && c.target.conversationId.startsWith('live:'))) {
+    if (input === '4' && !(c.target?.kind === 'continue' && c.target.conversationId.startsWith('live:'))) {
       c.screen = 'taskModel';
       return r().readDigits(this.modelMenuText(), this.next(c), { timeout: 20 });
     }

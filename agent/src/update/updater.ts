@@ -120,12 +120,12 @@ export class Updater {
 
   setAuto(auto: boolean): void { this.o.auto = auto; this.state.auto = auto; }
 
-  /** בדיקה ראשונה אחרי דקה, ואחר כך כל כמה שעות. */
+  /** בדיקה ראשונה אחרי 15 שניות, ואחר כך כל רבע שעה. */
   start(): void {
     if (!this.state.enabled || this.timer) return;
     const tick = () => this.check().then(() => this.maybeAuto()).catch(() => { /* נרשם במצב */ });
-    setTimeout(tick, 60_000).unref();
-    this.timer = setInterval(tick, Math.max(1, this.o.checkHours ?? 6) * 3600_000);
+    setTimeout(tick, 15_000).unref();
+    this.timer = setInterval(tick, Math.max(0.1, this.o.checkHours ?? 0.25) * 3600_000);
     this.timer.unref();
   }
 

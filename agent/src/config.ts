@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 export interface Config {
   yemot: { chatExtension: string; tokenFile: string; apiBase: string; recordFolder?: string };
   phones: { allowed: string[]; pinHashFile: string; lockoutAttempts: number; lockoutMinutes: number };
-  github: { tokenFile: string };
+  /** quick: מאגרים שנפתחים במקש אחד בתפריט הפרויקט החדש (שם מלא owner/repo, ושם להקראה בעברית). */
+  github: { tokenFile: string; quick: { fullName: string; spokenName: string }[] };
   /** שיחות ענן שאפשר לשלוח אליהן הודעה מהטלפון (שם להקראה, וקישור או מזהה). */
   cloud: { sessions: { name: string; url?: string; id?: string }[] };
   projects: { newProjectsParent: string; initGit: boolean; list: { name: string; spokenName?: string; path: string }[] };

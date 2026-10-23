@@ -9,7 +9,8 @@ param(
   [Parameter(Mandatory = $true)][string]$Version,
   [string]$Repo = 'shmuel-sinay/ClaudePhone',
   [string]$TokenFile = (Join-Path $env:LOCALAPPDATA 'ClaudePhone\github-token.txt'),
-  [switch]$Draft   # להשאיר כטיוטה (לא לפרסם)
+  [switch]$Draft,   # להשאיר כטיוטה (לא לפרסם)
+  [switch]$SkipWindows   # בלי קובץ ההתקנה ל-Windows (Windows לא יראה עדכון מהגרסה הזו)
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -26,6 +27,7 @@ $files = @("ClaudePhone-Setup-$Version.exe", "ClaudePhone-Setup-$Version.exe.sha
   "ClaudePhone-linux-x64-$Version.tar.gz", "ClaudePhone-linux-x64-$Version.tar.gz.sha256",
   "ClaudePhone-linux-arm64-$Version.tar.gz", "ClaudePhone-linux-arm64-$Version.tar.gz.sha256",
   'install.sh')
+if ($SkipWindows) { $files = $files | Where-Object { $_ -notlike '*Setup*' } }
 foreach ($f in $files) { if (!(Test-Path (Join-Path $out $f))) { throw "חסר קובץ: installer\output\$f (צריך לבנות קודם)" } }
 
 $H = @('-H', "Authorization: Bearer $token", '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28')

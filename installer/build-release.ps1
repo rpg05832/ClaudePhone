@@ -17,9 +17,9 @@ New-Item -ItemType Directory -Force -Path (Join-Path $agentOut 'dist'), (Join-Pa
 Step 'אריזת הסוכן (esbuild)'
 Push-Location $root
 try {
-  if (-not (Test-Path (Join-Path $root 'node_modules\esbuild'))) { & npm install --no-save --no-audit --no-fund esbuild@0.24.2; if ($LASTEXITCODE) { throw 'התקנת esbuild נכשלה' } }
+  if (-not (Test-Path (Join-Path $root 'node_modules\esbuild'))) { & npm.cmd install --no-save --no-audit --no-fund esbuild@0.24.2; if ($LASTEXITCODE) { throw 'התקנת esbuild נכשלה' } }
   $banner = "import { createRequire as __cpRequire } from 'node:module'; const require = __cpRequire(import.meta.url);"
-  & npx --no-install esbuild agent/src/main.ts --bundle --platform=node --format=esm --target=node22 `
+  & (Join-Path $root 'node_modules\.bin\esbuild.cmd') agent/src/main.ts --bundle --platform=node --format=esm --target=node22 `
       "--outfile=$agentOut\dist\agent.mjs" --external:@anthropic-ai/claude-agent-sdk "--banner:js=$banner" --log-level=warning
   if ($LASTEXITCODE) { throw 'האריזה נכשלה' }
 } finally { Pop-Location }
@@ -40,7 +40,7 @@ $sdkVer = (Get-Content (Join-Path $root 'node_modules\@anthropic-ai\claude-agent
 $pkg = [ordered]@{ name = 'claude-phone-agent'; version = $Version; private = $true; type = 'module'; dependencies = [ordered]@{ '@anthropic-ai/claude-agent-sdk' = $sdkVer } }
 [IO.File]::WriteAllText((Join-Path $agentOut 'package.json'), ($pkg | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
 Push-Location $agentOut
-try { & npm install --omit=dev --no-audit --no-fund --no-package-lock; if ($LASTEXITCODE) { throw 'התקנת ה-SDK נכשלה' } } finally { Pop-Location }
+try { & npm.cmd install --omit=dev --no-audit --no-fund --no-package-lock; if ($LASTEXITCODE) { throw 'התקנת ה-SDK נכשלה' } } finally { Pop-Location }
 if (-not (Test-Path (Join-Path $agentOut 'node_modules\@anthropic-ai\claude-agent-sdk-win32-x64\claude.exe'))) { throw 'claude.exe לא הותקן עם ה-SDK' }
 
 Step 'Node.js ומפעיל'
@@ -57,8 +57,8 @@ Step 'בדיקת עשן לחבילה'
 if ($LASTEXITCODE) { throw 'agent.mjs לא תקין' }
 
 Step 'הידור קובץ ההתקנה'
-$iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $iscc) { throw 'Inno Setup 6 לא נמצא' }
+$iscc = @((Join-Path $root 'node_modules\innosetup\bin\ISCC.exe'), "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $iscc) { throw 'Inno Setup 6 לא נמצא (אפשר: npm install --no-save innosetup בתיקיית הפרויקט)' }
 & $iscc "/DAppVersion=$Version" (Join-Path $inst 'claude-phone.iss')
 if ($LASTEXITCODE) { throw 'ההידור נכשל' }
 $exe = Get-ChildItem (Join-Path $inst 'output') -Filter "ClaudePhone-Setup-$Version.exe" | Select-Object -First 1
