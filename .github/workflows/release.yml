@@ -6,7 +6,7 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      version: { description: 'מספר גרסה, למשל 0.7.6', required: true }
+      version: { description: 'מספר גרסה, למשל 0.7.6. ריק: הגרסה הבאה אחרי האחרונה שפורסמה', required: false }
 permissions:
   contents: write
 jobs:
@@ -18,8 +18,15 @@ jobs:
         with: { node-version: 22 }
       - name: Version
         shell: pwsh
+        env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           $v = ('${{ inputs.version || github.ref_name }}').TrimStart('v')
+          if (-not $v -or $v -eq 'main') {
+            # בלי מספר: הגרסה הבאה אחרי האחרונה שפורסמה (מונע מספר כפול כששני אנשים עובדים במקביל)
+            $last = (gh release view --repo '${{ github.repository }}' --json tagName -q .tagName).TrimStart('v')
+            $p = $last.Split('.')
+            $v = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          }
           if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "תג לא תקין: $v" }
           "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - run: npm ci
@@ -37,7 +44,9 @@ jobs:
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           $out = 'installer/output'
-          $notes = Get-Content "docs/release-notes-$env:VERSION.md" -Raw -Encoding UTF8
+          $nf = "docs/release-notes-$env:VERSION.md"
+          # בלי קובץ הודעות: הודעה כללית במקום כשל בפרסום
+          $notes = if (Test-Path $nf) { Get-Content $nf -Raw -Encoding UTF8 } else { "# גרסה $env:VERSION`n`nעדכון. פירוט השינויים: https://github.com/${{ github.repository }}/commits/main" }
           $notes = ($notes -replace '^\s*#[^\r\n]*\r?\n', '').Trim()
           Set-Content notes.txt $notes -Encoding UTF8
           $files = @("ClaudePhone-Setup-$env:VERSION.exe","ClaudePhone-Setup-$env:VERSION.exe.sha256",
