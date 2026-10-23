@@ -164,12 +164,25 @@ test('ניתוק אחרי שהתוצאה הוקראה מסמן אותה כנשמ
   assert.equal(tasks.get(t.id)!.heard, true);
 });
 
-test('שם פרויקט שנאמר בקול מוקרא לאישור', async () => {
-  const { flow } = setup();
+test('שם פרויקט שנאמר בקול: הקלטה, תמלול במחשב (לא בימות), והקראה לאישור', async () => {
+  const heard: string[] = [];
+  const { flow } = setup({ transcribeAudio: async (p) => { heard.push(p); return 'בדיקה'; } });
   const c = call(flow);
   await c.send(); await c.send(PIN); await c.send('3'); await c.send('1');
-  assert.match(await c.send('1'), /voice/);
-  assert.match(await c.send('בדיקה'), /שם הפרויקט: בדיקה.*לאישור/);
+  const rec = await c.send('1');
+  assert.match(rec, /record,\/9,cp-/);
+  assert.doesNotMatch(rec, /voice/);
+  assert.match(await c.send('/9/n.wav'), /go_to_folder=\/9/);
+  assert.match(await c.send(), /שם הפרויקט: בדיקה.*לאישור/);
+  assert.deepEqual(heard, ['/9/cp-CALL1-n1.wav']);
+});
+
+test('שם פרויקט בקול שלא זוהה: מקליטים שוב', async () => {
+  const { flow } = setup({ transcribeAudio: async () => '  ' });
+  const c = call(flow);
+  await c.send(); await c.send(PIN); await c.send('3'); await c.send('1'); await c.send('1');
+  await c.send('/9/n.wav');
+  assert.match(await c.send(), /לא זוהה דיבור.*record,\/9,cp-/);
 });
 
 test('הגדרות: מעבר לקריאה בלבד וחזרה, והמצב מוקרא בכניסה', async () => {
