@@ -69,7 +69,7 @@ type Target = { kind: 'new'; projectId: string } | { kind: 'continue'; conversat
 type Screen =
   | 'pin' | 'main'
   | 'convList' | 'projList' | 'liveList'
-  | 'newProjMode' | 'newProjName' | 'newProjConfirm' | 'ghList' | 'ghOpening' | 'moreMenu' | 'cloudList' | 'cloudRecorded' | 'cloudTranscribing' | 'cloudConfirm'
+  | 'newProjMode' | 'newProjName' | 'newProjConfirm' | 'ghList' | 'ghOpening' | 'newProjRecorded' | 'newProjTranscribing' | 'moreMenu' | 'cloudList' | 'cloudRecorded' | 'cloudTranscribing' | 'cloudConfirm'
   | 'record' | 'transcribing' | 'confirmTranscript'
   | 'waiting'
   | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback' | 'settingsStt'
@@ -104,6 +104,7 @@ interface CallState {
   recFile?: string;
   newProjByKeyboard?: boolean;
   ghRepos?: { fullName: string; spokenName: string }[];   // תמונת מצב של רשימת המאגרים שהוקראה
+  projVoice?: { file: string; text?: string; error?: string; done: boolean };
   cloudSel?: { id: string; name: string; file?: string; text?: string; error?: string; done: boolean };
   ghJob?: { done: boolean; error?: string; project?: Project; since: number };
   liveIds?: string[];
@@ -210,6 +211,8 @@ export class PhoneFlow {
       case 'newProjMode': return this.onNewProjMode(c, input);
       case 'newProjName': return this.onNewProjName(c, input);
       case 'newProjConfirm': return this.onNewProjConfirm(c, input);
+      case 'newProjRecorded': return this.onNewProjRecorded(c);
+      case 'newProjTranscribing': return this.onNewProjTranscribing(c);
       case 'moreMenu': return this.onMoreMenu(c, input);
       case 'cloudList': return this.onCloudList(c, input);
       case 'cloudRecorded': return this.onCloudRecorded(c);
@@ -535,9 +538,10 @@ export class PhoneFlow {
   private onNewProjMode(c: CallState, input: string | undefined): YemotResponse {
     if (input === '0') { c.page = 0; return this.projListScreen(c); }
     if (input === '3' && this.d.github?.enabled()) return this.ghListScreen(c, true);
-    c.screen = 'newProjName';
     c.newProjByKeyboard = input === '2';
-    if (input === '1') return r().readVoice('אמור את שם הפרויקט אחרי הצליל', this.next(c));
+    // שם בקול: הקלטה ותמלול במחשב (לא זיהוי הדיבור של ימות, שעולה יחידות)
+    if (input === '1') return this.newProjRecordScreen(c);
+    c.screen = 'newProjName';
     if (input === '2') return r().readText('הקלד את שם הפרויקט וסולמית', this.next(c), { max: 40 });
     return this.newProjModeScreen(c, 'בחירה לא תקינה');
   }
@@ -588,6 +592,35 @@ export class PhoneFlow {
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'project_created', detail: `github:${job.project.name}` });
     c.target = { kind: 'new', projectId: job.project.id };
     return this.recordScreen(c, `הפרויקט ${job.project.spokenName} מוכן.`);
+  }
+
+  private newProjRecordScreen(c: CallState, prefix = ''): YemotResponse {
+    c.recCount += 1;
+    const file = `cp-${c.callId.replace(/[^A-Za-z0-9]/g, '').slice(-10)}-n${c.recCount}`;
+    c.projVoice = { file: `/${c.ext}/${file}.wav`, done: false };
+    c.screen = 'newProjRecorded';
+    const res = r();
+    if (prefix) res.say(prefix);
+    return res.record('אמור את שם הפרויקט אחרי הצליל. בסיום הקש סולמית', this.next(c), `/${c.ext}`, file);
+  }
+
+  private onNewProjRecorded(c: CallState): YemotResponse {
+    const pv = c.projVoice!;
+    this.d.transcribeAudio(pv.file)
+      .then(t => { pv.text = t.trim(); pv.done = true; })
+      .catch(e => { logError('stt', e, 'newProjName'); pv.error = 'התמלול נכשל'; pv.done = true; });
+    c.screen = 'newProjTranscribing';
+    return r().say('מתמלל').goto(`/${c.ext}`);
+  }
+
+  private async onNewProjTranscribing(c: CallState): Promise<YemotResponse> {
+    const pv = c.projVoice!;
+    const deadline = Date.now() + 9000;
+    while (!pv.done && Date.now() < deadline) await this.sleep(250);
+    if (!pv.done) return r().goto(`/${c.ext}`);
+    if (pv.error || !pv.text) return this.newProjRecordScreen(c, `${pv.error ?? 'לא זוהה דיבור'}. אמור שוב.`);
+    c.projVoice = undefined;
+    return this.onNewProjName(c, pv.text);
   }
 
   private async onNewProjName(c: CallState, input: string | undefined): Promise<YemotResponse> {
