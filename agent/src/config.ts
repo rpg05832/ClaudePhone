@@ -11,7 +11,14 @@ export interface Config {
   quietHours: { start: string; end: string; shabbatAndChag: boolean; includeCholHamoed: boolean; candleMinutes: number; marginMinutes: number; location: string };
   /** freeList: שם רשימת הצינתוקים החינמיים (תת-שלוחה <שלוחה>/1). ריק: תמיד צינתוק בתשלום. */
   notifications: { mode: 'tzintuk' | 'call' | 'none'; freeList: string };
-  stt: { engine: 'faster-whisper' | 'yemot'; model: string; python: string; script: string; timeoutSeconds: number };
+  /** 0.7.8: groqKeyFile: מפתח API של Groq (תמלול חינמי בענן); groqModel: המודל ב-Groq (whisper-large-v3). */
+  stt: { engine: 'faster-whisper' | 'yemot'; model: string; python: string; script: string; timeoutSeconds: number; groqKeyFile: string; groqModel: string; groqApiBase: string };
+  /**
+   * 0.7.8, קול משופר: הקראה בקול של Gemini (קובץ שמע שמועלה לשלוחה) במקום מנוע ההקראה של ימות.
+   * geminiKeyFile: מפתח API של Gemini. models: המודלים לפי סדר הניסיון (מכסה יומית נפרדת לכל אחד). folder: תת-תיקייה בשלוחה לקבצים.
+   * maxFiles: כמה קבצים נשמרים בימות (הישנים נמחקים). timeoutMs: כמה זמן מחכים להפקה לפני שחוזרים לקול של ימות.
+   */
+  speech: { geminiKeyFile: string; apiBase: string; models: string[]; folder: string; maxFiles: number; timeoutMs: number; refreshDays: number };
   claude: { strictMcp: boolean; permissionMode: 'default'; maxTurns: number; model?: string };
   /** חיבורי MCP למשימות מהטלפון: אילו שרתים פתוחים (לפי slug), והסריקה האחרונה של מה שקיים במחשב. */
   mcp: { enabled: string[]; chrome: import('./claude/chrome.ts').ChromeSettings; scan: { at: string; claudeCodeVersion: string | null; servers: { slug: string; name: string; status: string; source: 'claude.ai' | 'plugin' | 'local'; tools: string[] }[] } | null };
@@ -38,6 +45,8 @@ export function loadConfig(root = AGENT_ROOT): Config {
   cfg.yemot.tokenFile = abs(root, cfg.yemot.tokenFile);
   cfg.phones.pinHashFile = abs(root, cfg.phones.pinHashFile);
   cfg.stt.script = abs(root, cfg.stt.script);
+  cfg.stt.groqKeyFile = abs(root, cfg.stt.groqKeyFile);
+  cfg.speech.geminiKeyFile = abs(root, cfg.speech.geminiKeyFile);
   cfg.dashboard.tokenFile = abs(root, cfg.dashboard.tokenFile);
   cfg.dashboard.staticDir = abs(root, cfg.dashboard.staticDir);
   if (cfg.tunnel.cloudflaredPath) cfg.tunnel.cloudflaredPath = abs(root, cfg.tunnel.cloudflaredPath);

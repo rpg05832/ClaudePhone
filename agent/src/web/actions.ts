@@ -1,7 +1,7 @@
 // שלב 4: פעולות מלוח הבקרה. עוברות דרך אותו תור, אותן נעילות ואותו מתווך הרשאות כמו מהטלפון.
 // ההגנה (אסימון מקומי, Origin, כותרת X-CP) נעשית בשרת הלוח לפני שמגיעים לכאן.
 import type { Store, EditMode } from '../store/db.ts';
-import { VOICES, MODELS, EFFORTS, READBACKS, STT_ENGINES } from '../store/db.ts';
+import { VOICES, GEMINI_VOICES, MODELS, EFFORTS, READBACKS, STT_ENGINES } from '../store/db.ts';
 import type { Tasks } from '../store/tasks.ts';
 import type { ConversationIndex } from '../history/conversations.ts';
 import type { DecideResult } from '../claude/broker.ts';
@@ -275,6 +275,9 @@ export class DashboardActions {
       if (body?.readback !== undefined) { if (!READBACKS.some(m => m.id === body.readback)) return bad('ערך לא תקין'); this.d.store.setSetting('readback', body.readback); }
       if (body?.pin !== undefined) { if (body.pin !== 'required' && body.pin !== 'off') return bad('ערך לא תקין'); this.d.store.setSetting('pin', body.pin); }
       if (body?.stt !== undefined) { if (!STT_ENGINES.some(m => m.id === body.stt)) return bad('מנוע תמלול לא תקין'); this.d.store.setSetting('stt', body.stt); if (body.stt === 'local') this.d.sttChanged?.(); }
+      // 0.7.8: הקול המשופר (Gemini) והקול שלו
+      if (body?.speech !== undefined) { if (body.speech !== 'gemini' && body.speech !== 'yemot') return bad('ערך לא תקין'); this.d.store.setSetting('speech', body.speech); }
+      if (body?.geminiVoice !== undefined) { if (!GEMINI_VOICES.some(v => v.id === body.geminiVoice)) return bad('קול לא תקין'); this.d.store.setSetting('geminiVoice', body.geminiVoice); }
       const after = this.d.store.getSettings();
       let warning: string | null = null;
       if ((after.voice !== before.voice || after.rate !== before.rate) && this.d.applyVoice) {

@@ -1,13 +1,15 @@
 // אשף ההגדרה: ה-API שמאחורי המסכים (אפיון 7). כל פעולה שמשנה משהו היא POST עם הגנות CSRF (בשרת הלוח).
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import type { Config } from '../config.ts';
 import { saveUserConfig, readSecretFile, AGENT_ROOT } from '../config.ts';
 import type { Store, EditMode } from '../store/db.ts';
-import { VOICES } from '../store/db.ts';
+import { VOICES, GEMINI_VOICES, STT_ENGINES } from '../store/db.ts';
 import { YemotApi } from '../phone/yemot-api.ts';
+import { checkGroqKey, readKeyFile, GROQ_KEYS_URL, type FetchLike } from '../stt/groq.ts';
+import { checkGeminiKey, GEMINI_KEYS_URL } from '../tts/gemini.ts';
 import { savePinHash, loadPinHash } from '../util/pin.ts';
 import { systemReport, run } from './checks.ts';
 import { SetupJobs, type InstallItem } from './jobs.ts';
@@ -34,6 +36,8 @@ export interface SetupDeps {
   history?: ClaudeHistory;
   /** תיקיית הסוכן שבה נשמר config.json (בבדיקות: תיקייה זמנית). */
   root?: string;
+  /** בדיקת מפתחות מול השירותים (בבדיקות: מוחלף). */
+  fetch?: FetchLike;
 }
 
 export interface SetupStatus {
@@ -51,6 +55,8 @@ export interface SetupStatus {
   platform: string;
   osName: string;
   gui: boolean;
+  /** 0.7.8: מפתחות של השירותים החינמיים (האם שמורים במחשב) וכתובות להפקתם. */
+  keys: { groq: boolean; gemini: boolean; groqUrl: string; geminiUrl: string };
 }
 
 export function needsSetup(cfg: Config): boolean {
@@ -104,6 +110,7 @@ export class SetupApi {
       platform: process.platform,
       osName: osName(),
       gui: hasGui(),
+      keys: { groq: !!readKeyFile(c.stt.groqKeyFile), gemini: !!readKeyFile(c.speech.geminiKeyFile), groqUrl: GROQ_KEYS_URL, geminiUrl: GEMINI_KEYS_URL },
     };
   }
 
@@ -192,6 +199,26 @@ export class SetupApi {
         return ok({ saved: true, mode, publicUrl, path: c.phoneServer.path, port: c.phoneServer.port });
       }
 
+      // 0.7.8: מפתחות של השירותים החינמיים: Groq (תמלול) ו-Gemini (הקול המשופר). כל מפתח נבדק מול השירות ונשמר
+      // בקובץ בתיקיית הנתונים (כמו הטוקן של ימות); לא חוזר ללוח. ריק: לא משנה. clear: מחיקה.
+      case '/keys': {
+        const out: Record<string, { ok: boolean; detail: string } | null> = { groq: null, gemini: null };
+        const clear = Array.isArray(body?.clear) ? body.clear.map(String) : [];
+        const fetchFn = this.d.fetch;
+        for (const [name, file] of [['groq', c.stt.groqKeyFile], ['gemini', c.speech.geminiKeyFile]] as const) {
+          if (clear.includes(name)) { try { if (existsSync(file)) unlinkSync(file); } catch { /* */ } out[name] = { ok: true, detail: 'המפתח נמחק' }; continue; }
+          const key = String(body?.[name] ?? '').trim();
+          if (!key) continue;
+          const r = name === 'groq' ? await checkGroqKey(key, c.stt.groqApiBase, fetchFn) : await checkGeminiKey(key, c.speech.models, c.speech.apiBase, fetchFn);
+          if (!r.ok) { out[name] = r; continue; }
+          mkdirSync(dirname(file), { recursive: true });
+          writeFileSync(file, key + '\n', 'utf8');
+          log('setup', `מפתח ${name} נשמר`);
+          out[name] = r;
+        }
+        return ok({ saved: true, results: out, keys: this.status().keys });
+      }
+
       case '/phones': {
         const raw = (Array.isArray(body?.phones) ? body.phones : []).map((p: unknown) => String(p ?? '').trim()).filter(Boolean);
         const added = raw.map(normalizePhone);
@@ -241,6 +268,9 @@ export class SetupApi {
         if (body?.voice && VOICES.some(v => v.id === body.voice)) this.d.store.setSetting('voice', body.voice);
         if (Number.isFinite(Number(body?.rate))) this.d.store.setSetting('rate', Math.max(-10, Math.min(10, Number(body.rate))));
         if (body?.notify === 'on' || body?.notify === 'off') this.d.store.setSetting('notify', body.notify);
+        if (body?.speech === 'gemini' || body?.speech === 'yemot') this.d.store.setSetting('speech', body.speech);
+        if (body?.geminiVoice && GEMINI_VOICES.some(v => v.id === body.geminiVoice)) this.d.store.setSetting('geminiVoice', body.geminiVoice);
+        if (STT_ENGINES.some(e => e.id === body?.stt)) this.d.store.setSetting('stt', body.stt);
         return ok({ saved: true, settings: this.d.store.getSettings() });
       }
 

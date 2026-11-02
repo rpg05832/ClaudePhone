@@ -47,11 +47,19 @@ export const VOICE_LABEL: Record<string, string> = {
   ymMale: 'גברי ראשון', Elik_2100: 'גברי שני', Jacob: 'גברי שלישי', ymFemale: 'נשי ראשון', Sivan: 'נשי שני', Osnat: 'נשי שלישי',
 };
 
+/** 0.7.8: הקולות של Gemini לקול המשופר (כמו GEMINI_VOICES בסוכן) */
+export const GEMINI_VOICE_LABEL: Record<string, string> = {
+  Charon: 'גברי רגוע (Charon)', Orus: 'גברי יציב (Orus)', Puck: 'גברי קליל (Puck)', Kore: 'נשי יציב (Kore)', Leda: 'נשי צעיר (Leda)', Zephyr: 'נשי בהיר (Zephyr)',
+};
+
+export const STT_LABEL: Record<string, string> = { groq: 'Groq (חינמי, מהיר, בלי התקנה)', claude: 'Claude (שירות ההכתבה, בלי התקנה)', local: 'ivrit-ai במחשב' };
+export const STT_SHORT: Record<string, string> = { groq: 'Groq', claude: 'Claude', local: 'ivrit-ai' };
+
 export const PHONE_KIND: Record<string, string> = {
   call_start: 'שיחה נכנסת', pin_ok: 'כניסה עם PIN', pin_fail: 'PIN שגוי', pin_locked: 'כניסה חסומה', rejected_number: 'מספר לא מורשה',
   recorded: 'הקלטה', task_sent: 'משימה נשלחה', hangup: 'ניתוק', project_created: 'פרויקט חדש', decision: 'החלטה על בקשה',
   stop_requested: 'בקשת עצירה', setting_editMode: 'שינוי מצב עבודה', setting_voice: 'שינוי קול', setting_notify: 'צינתוקים', setting_model: 'שינוי מודל',
-  setting_effort: 'שינוי רמת חשיבה', setting_readback: 'שינוי מה מוקרא בסיום', setting_stt: 'שינוי מנוע התמלול', free_tzintuk_signup: 'הרשמה לצינתוקים חינמיים', login_no_pin: 'כניסה בלי קוד (מספר מורשה)',
+  setting_effort: 'שינוי רמת חשיבה', setting_readback: 'שינוי מה מוקרא בסיום', setting_stt: 'שינוי מנוע התמלול', setting_speech: 'שינוי הקול המשופר', free_tzintuk_signup: 'הרשמה לצינתוקים חינמיים', login_no_pin: 'כניסה בלי קוד (מספר מורשה)',
   duplicate_event: 'אירוע כפול (סונן)', no_pin_configured: 'אין PIN מוגדר',
 };
 

@@ -1,7 +1,8 @@
-// תמלול. שני מנועים מאחורי ממשק אחד (SmartTranscriber):
-// - Claude (ברירת המחדל מ-0.7.4): שירות ההכתבה של Claude, עם ההתחברות של Claude Code (claude.ts). ההקלטה נשלחת ל-Anthropic.
+// תמלול. שלושה מנועים מאחורי ממשק אחד (SmartTranscriber):
+// - Groq (ברירת המחדל מ-0.7.8): Whisper על השרתים של Groq, במדרגה החינמית, עם מפתח API (groq.ts). ההקלטה נשלחת ל-Groq.
+// - Claude (ברירת המחדל מ-0.7.4 עד 0.7.7): שירות ההכתבה של Claude, עם ההתחברות של Claude Code (claude.ts). ההקלטה נשלחת ל-Anthropic.
 // - ivrit-ai במחשב: תהליך Python קבוע עם faster-whisper (נמדד בשלב 0: פי 5 מזמן אמת). ההקלטה לא יוצאת מהמחשב.
-// כל אחד הוא הגיבוי של השני.
+// המנוע שנבחר ראשון, והשאר גיבוי לפי הסדר Groq, Claude, ivrit-ai.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
@@ -79,74 +80,90 @@ export class WhisperTranscriber implements Transcriber {
   stop(): void { this.child?.kill(); }
 }
 
-/** 'claude': שירות ההכתבה של Claude, ו-ivrit-ai כגיבוי. 'local': ivrit-ai במחשב, ו-Claude כגיבוי. */
-export type SttEngine = 'claude' | 'local';
+/** 'groq': Whisper ב-Groq (חינמי, ברירת המחדל מ-0.7.8). 'claude': שירות ההכתבה של Claude. 'local': ivrit-ai במחשב. השאר גיבוי. */
+export type SttEngine = 'groq' | 'claude' | 'local';
+const ENGINE_NAMES: Record<SttEngine, string> = { groq: 'Groq', claude: 'Claude', local: 'ivrit-ai' };
+/** סדר הגיבויים (אחרי המנוע שנבחר): Groq, Claude, ivrit-ai */
+const ENGINE_ORDER: SttEngine[] = ['groq', 'claude', 'local'];
+
+type CloudStt = { available(): boolean; transcribeWav(buf: Buffer): Promise<{ text: string; seconds: number }> };
 
 /**
- * בוחר מנוע תמלול לפי ההגדרה (נקראת בכל תמלול, כך ששינוי בלוח חל מיד), ועובר לשני כשהראשון נכשל,
- * מחזיר טקסט ריק, או (ב-Claude) נתקע על חזרה. כשאין גיבוי: שגיאה, או הטקסט של Claude כמו שהוא (המשתמש שומע אותו לאישור).
+ * בוחר מנוע תמלול לפי ההגדרה (נקראת בכל תמלול, כך ששינוי בלוח חל מיד), ועובר לבא בתור כשהראשון נכשל,
+ * מחזיר טקסט ריק, או נתקע על חזרה. כשאין עוד גיבוי: שגיאה, או הטקסט שהתקבל כמו שהוא (המשתמש שומע אותו לאישור).
  */
 export class SmartTranscriber implements Transcriber {
   /** המנוע שתמלל לאחרונה (ללוח הבקרה) */
   lastEngine: SttEngine | null = null;
   constructor(
     private engine: () => SttEngine,
-    private claude: { available(): boolean; transcribeWav(buf: Buffer): Promise<{ text: string; seconds: number }> },
+    private claude: CloudStt,
     private local: { transcribe(path: string): Promise<string>; warmup?(): Promise<void>; stop(): void; ready: boolean },
     private readFile: (path: string) => Buffer,
     private localInstalled: () => boolean,
+    private groq: CloudStt | null = null,
   ) {}
 
-  /** מוכן לתמלל: Claude מחובר, או ivrit-ai טעון. */
-  get ready(): boolean { return this.engine() === 'claude' ? this.claude.available() || this.local.ready : this.local.ready || this.claude.available(); }
+  private availableOf(e: SttEngine): boolean {
+    if (e === 'groq') return !!this.groq?.available();
+    if (e === 'claude') return this.claude.available();
+    return this.localInstalled();
+  }
+
+  /** המנועים הזמינים, לפי הסדר: הנבחר ראשון, ואחריו הגיבויים. */
+  order(): SttEngine[] {
+    const first = this.engine();
+    return [first, ...ENGINE_ORDER.filter(e => e !== first)].filter(e => this.availableOf(e));
+  }
+
+  /** מוכן לתמלל: יש מנוע ענן עם התחברות או מפתח, או ivrit-ai טעון. */
+  get ready(): boolean { return this.order().some(e => e !== 'local' || this.local.ready); }
 
   status(): { ok: boolean; engine: SttEngine; detail: string } {
     const e = this.engine();
-    const claudeOk = this.claude.available();
-    const local = this.local.ready ? 'ivrit-ai טעון' : this.localInstalled() ? 'ivrit-ai מותקן' : 'ivrit-ai לא מותקן';
-    if (e === 'claude') return { ok: claudeOk || this.local.ready, engine: e, detail: claudeOk ? `Claude מחובר · גיבוי: ${local}` : `אין התחברות של Claude Code · ${local}` };
-    return { ok: this.local.ready || claudeOk, engine: e, detail: this.local.ready ? `ivrit-ai טעון · גיבוי: ${claudeOk ? 'Claude' : 'אין'}` : `${local}${claudeOk ? ' · גיבוי: Claude' : ''}` };
+    const order = this.order();
+    const name = (x: SttEngine) => x === 'local' ? (this.local.ready ? 'ivrit-ai טעון' : 'ivrit-ai מותקן') : ENGINE_NAMES[x];
+    const missing = (x: SttEngine) => x === 'groq' ? 'Groq: אין מפתח' : x === 'claude' ? 'אין התחברות של Claude Code' : 'ivrit-ai לא מותקן';
+    const backups = order.filter(x => x !== e).map(name);
+    if (!order.length) return { ok: false, engine: e, detail: `אין מנוע תמלול: ${ENGINE_ORDER.map(missing).join(' · ')}` };
+    if (order[0] === e) return { ok: true, engine: e, detail: `${name(e)}${backups.length ? ' · גיבוי: ' + backups.join(', ') : ' · אין גיבוי'}` };
+    return { ok: true, engine: e, detail: `${missing(e)} · מתמלל ב-${name(order[0])}${backups.length > 1 ? ' · גיבוי: ' + backups.slice(1).join(', ') : ''}` };
   }
 
   async warmup(): Promise<void> { if (this.engine() === 'local' && this.localInstalled()) await this.local.warmup?.(); }
 
-  private async viaClaude(path: string): Promise<{ text: string; stuck: boolean }> {
+  /** תמלול במנוע אחד. stuck: חזרה אינסופית (מנועי ענן) שנחשבת כישלון אם יש גיבוי. */
+  private async run(e: SttEngine, path: string): Promise<{ text: string; stuck: boolean }> {
+    if (e === 'local') return { text: await this.local.transcribe(path), stuck: false };
     const t0 = Date.now();
-    const r = await this.claude.transcribeWav(this.readFile(path));
+    const r = await (e === 'groq' ? this.groq! : this.claude).transcribeWav(this.readFile(path));
     const stuck = looksStuck(r.text, r.seconds);
-    log('stt', `Claude תמלל ${r.seconds.toFixed(1)} שניות אודיו ב-${((Date.now() - t0) / 1000).toFixed(1)} שניות${stuck ? ' (נתקע על חזרה)' : ''}`);
+    log('stt', `${ENGINE_NAMES[e]} תמלל ${r.seconds.toFixed(1)} שניות אודיו ב-${((Date.now() - t0) / 1000).toFixed(1)} שניות${stuck ? ' (נתקע על חזרה)' : ''}`);
     return { text: r.text, stuck };
   }
 
   async transcribe(path: string): Promise<string> {
-    const first = this.engine();
-    const localOk = this.localInstalled();
-    if (first === 'claude' && this.claude.available()) {
-      let fallbackText = '';
+    const order = this.order();
+    if (!order.length) throw new Error('אין מנוע תמלול זמין: אין מפתח Groq, אין התחברות של Claude Code, ו-ivrit-ai לא מותקן');
+    let stuckText = '';
+    for (let i = 0; i < order.length; i++) {
+      const e = order[i];
+      const last = i === order.length - 1;
       try {
-        const r = await this.viaClaude(path);
-        if (r.text && !r.stuck) { this.lastEngine = 'claude'; return normalizeSpelled(r.text); }
-        fallbackText = r.stuck ? r.text : '';
-        if (!localOk) { this.lastEngine = 'claude'; return normalizeSpelled(r.text); }
-        log('stt', r.text ? 'עובר ל-ivrit-ai (התמלול של Claude נתקע)' : 'עובר ל-ivrit-ai (Claude לא זיהה דיבור)');
-      } catch (e) {
-        if (!localOk) throw e;
-        log('stt', `עובר ל-ivrit-ai: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      try { const t = await this.local.transcribe(path); this.lastEngine = 'local'; return t; }
-      catch (e) { if (fallbackText) { this.lastEngine = 'claude'; return normalizeSpelled(fallbackText); } throw e; }
-    }
-    if (localOk) {
-      try { const t = await this.local.transcribe(path); this.lastEngine = 'local'; return t; }
-      catch (e) {
-        if (!this.claude.available()) throw e;
-        log('stt', `עובר לתמלול של Claude: ${e instanceof Error ? e.message : String(e)}`);
+        const r = await this.run(e, path);
+        if (r.text && !r.stuck) { this.lastEngine = e; return normalizeSpelled(r.text); }
+        if (r.stuck && !stuckText) stuckText = r.text;
+        if (last) { this.lastEngine = e; return normalizeSpelled(stuckText || r.text); }
+        log('stt', `עובר ל-${ENGINE_NAMES[order[i + 1]]} (${r.text ? `התמלול של ${ENGINE_NAMES[e]} נתקע` : `${ENGINE_NAMES[e]} לא זיהה דיבור`})`);
+      } catch (err) {
+        if (last) {
+          if (stuckText) { this.lastEngine = order.find(x => x !== 'local') ?? e; return normalizeSpelled(stuckText); }
+          throw err;
+        }
+        log('stt', `עובר ל-${ENGINE_NAMES[order[i + 1]]}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    if (!this.claude.available()) throw new Error('אין מנוע תמלול זמין: אין התחברות של Claude Code, ו-ivrit-ai לא מותקן');
-    const r = await this.viaClaude(path);
-    this.lastEngine = 'claude';
-    return normalizeSpelled(r.text);
+    throw new Error('התמלול נכשל');
   }
 
   stop(): void { this.local.stop(); }

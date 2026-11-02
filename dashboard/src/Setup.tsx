@@ -1,7 +1,8 @@
 // אשף ההגדרה (אפיון 7): מסך אחרי מסך, כל שלב נשמר מיד. אין כאן סודות מוצגים: הטוקן וה-PIN נשלחים לסוכן ולא חוזרים.
 import { useEffect, useRef, useState } from 'react';
 import { CreditLine } from './Credits';
-import { VOICE_LABEL, MODE_LABEL, PHONE_KIND, when } from './format';
+import { KeysBox, type KeysStatus } from './Keys';
+import { VOICE_LABEL, GEMINI_VOICE_LABEL, MODE_LABEL, PHONE_KIND, when } from './format';
 
 // ---------- תקשורת ----------
 async function get<T>(path: string): Promise<T> {
@@ -32,9 +33,10 @@ interface Status {
   tunnel?: { mode: 'quick' | 'none'; publicUrl: string; path: string; port: number };
   claudeProjectsDir?: string | null; desktopProjectsDir?: string;
   platform?: string; osName?: string; gui?: boolean;
+  keys?: KeysStatus;
 }
 
-const STEPS = ['ברוכים הבאים', 'בדיקת המחשב', 'התקנת רכיבים', 'חיבור ל-Claude', 'ימות המשיח', 'טלפונים וקוד', 'פרויקטים', 'העדפות', 'הפעלה ובדיקה'] as const;
+const STEPS = ['ברוכים הבאים', 'בדיקת המחשב', 'התקנת רכיבים', 'חיבור ל-Claude', 'תמלול וקול', 'ימות המשיח', 'טלפונים וקוד', 'פרויקטים', 'העדפות', 'הפעלה ובדיקה'] as const;
 
 function useJob(id: string | null, onEnd?: (j: Job) => void): Job | null {
   const [job, setJob] = useState<Job | null>(null);
@@ -91,11 +93,12 @@ export default function Setup({ standalone }: { standalone: boolean }) {
         {step === 1 && <Checks report={report} checking={checking} err={checkErr} rerun={runChecks} next={next} back={back} />}
         {step === 2 && <Install report={report} rerun={runChecks} next={next} back={back} />}
         {step === 3 && <ClaudeLogin auth={item('claudeAuth')} rerun={runChecks} next={next} back={back} />}
-        {step === 4 && <Yemot status={status} next={next} back={back} />}
-        {step === 5 && <Phones status={status} next={next} back={back} />}
-        {step === 6 && <ProjectsStep status={status} next={next} back={back} />}
-        {step === 7 && <Prefs next={next} back={back} />}
-        {step === 8 && <Finish status={status} back={back} />}
+        {step === 4 && <FreeServices report={report} next={next} back={back} />}
+        {step === 5 && <Yemot status={status} next={next} back={back} />}
+        {step === 6 && <Phones status={status} next={next} back={back} />}
+        {step === 7 && <ProjectsStep status={status} next={next} back={back} />}
+        {step === 8 && <Prefs next={next} back={back} />}
+        {step === 9 && <Finish status={status} back={back} />}
       </section>
     </div>
   );
@@ -276,7 +279,26 @@ function ClaudeLogin({ auth, rerun, next, back }: { auth?: CheckItem; rerun: () 
   );
 }
 
-// ---------- 5. ימות ----------
+// ---------- 5. תמלול וקול (0.7.8): מפתחות חינמיים של Groq ו-Gemini ----------
+function FreeServices({ report, next, back }: { report: Report | null; next: () => void; back: () => void }) {
+  const [keys, setKeys] = useState<KeysStatus | null>(null);
+  const blocked = (report?.network ?? []).filter(n => n.state === 'blocked' && /groq|googleapis/.test(n.host));
+  return (
+    <div>
+      <h1>תמלול וקול</h1>
+      <p>שני שירותים חינמיים משפרים את החוויה בטלפון: <b>Groq</b> מתמלל את ההקלטות שלך במהירות ובדיוק, ו-<b>Gemini</b> מקריא לך בקול שנשמע כמו אדם. לכל אחד צריך מפתח חינמי, שמופק בדקה. אפשר לדלג ולהוסיף אחר כך בלוח הבקרה.</p>
+      {blocked.length > 0 && <div className="warnbox"><b>סינון האינטרנט חוסם:</b> {blocked.map(b => b.host).join(', ')}. בקש מספק הסינון (למשל נטפרי) לפתוח את הכתובות האלה; עד אז השירות לא יעבוד והתוכנה תשתמש בגיבוי.</div>}
+      <KeysBox onChange={setKeys} />
+      <p className="hint">בלי מפתח Groq ההקלטות מתומללות בשירות של Claude (או במחשב, אם הותקן ivrit-ai). בלי מפתח Gemini ההקראה בקול של ימות. את המפתחות אפשר להחליף או למחוק בכל זמן.</p>
+      <div className="wiz-nav">
+        <button className="btn primary" type="button" onClick={next}>{keys?.groq || keys?.gemini ? 'המשך' : 'דלג בינתיים'}</button>
+        <button className="btn" type="button" onClick={back}>חזרה</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 6. ימות ----------
 function Yemot({ status, next, back }: { status: Status | null; next: () => void; back: () => void }) {
   const [token, setToken] = useState('');
   const [ext, setExt] = useState(status?.yemot.extension || '9');
@@ -371,7 +393,7 @@ function Connection({ status }: { status: Status | null }) {
   );
 }
 
-// ---------- 6. טלפונים ו-PIN ----------
+// ---------- 7. טלפונים ו-PIN ----------
 // כשכבר יש מספרים: מוצגים (מוסתרים), ואפשר להשאיר, להסיר או להוסיף בלי להקליד שוב. הקוד נשאר אם משאירים ריק.
 function Phones({ status, next, back }: { status: Status | null; next: () => void; back: () => void }) {
   const existing = status?.phones ?? [];
@@ -439,7 +461,7 @@ function Phones({ status, next, back }: { status: Status | null; next: () => voi
   );
 }
 
-// ---------- 7. פרויקטים ----------
+// ---------- 8. פרויקטים ----------
 interface KnownFolder { path: string; name: string; sources: ('code' | 'desktop' | 'cowork')[]; coworkProjects: string[]; conversations: number; lastUsed: string | null; selected: boolean }
 const SRC_LABEL = { code: 'Claude Code', desktop: 'Desktop', cowork: 'Cowork' } as const;
 
@@ -526,7 +548,7 @@ function ProjectsStep({ status, next, back }: { status: Status | null; next: () 
   );
 }
 
-// ---------- 8. העדפות ----------
+// ---------- 9. העדפות ----------
 function Prefs({ next, back }: { next: () => void; back: () => void }) {
   const [mode, setMode] = useState<'readonly' | 'edit' | 'auto'>('edit');
   const [voice, setVoice] = useState('ymMale');
@@ -534,10 +556,19 @@ function Prefs({ next, back }: { next: () => void; back: () => void }) {
   const [notify, setNotify] = useState<'on' | 'off'>('on');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { fetch('/api/overview', { credentials: 'same-origin' }).then(r => r.json()).then(o => { const s = o.settings; if (s) { setMode(s.editMode); setVoice(s.voice); setRate(s.rate); setNotify(s.notify); } }).catch(() => {}); }, []);
+  const [geminiKey, setGeminiKey] = useState(false);
+  useEffect(() => {
+    fetch('/api/overview', { credentials: 'same-origin' }).then(r => r.json()).then(o => {
+      const s = o.settings;
+      if (s) { setMode(s.editMode); setRate(s.rate); setNotify(s.notify); setVoice(s.speech === 'gemini' ? 'gemini:' + (s.geminiVoice ?? 'Charon') : s.voice); }
+    }).catch(() => {});
+    get<Status>('/status').then(s => setGeminiKey(!!s.keys?.gemini)).catch(() => {});
+  }, []);
   const submit = async () => {
     setBusy(true); setErr(null);
-    try { await post('/prefs', { editMode: mode, voice, rate, notify }); next(); } catch (e: any) { setErr(e.message); }
+    // 0.7.8: קול של Gemini ("gemini:<שם>") מפעיל את הקול המשופר; קול של ימות מכבה אותו
+    const v = voice.startsWith('gemini:') ? { speech: 'gemini', geminiVoice: voice.slice(7) } : { speech: 'yemot', voice };
+    try { await post('/prefs', { editMode: mode, rate, notify, ...v }); next(); } catch (e: any) { setErr(e.message); }
     setBusy(false);
   };
   const MODE_HELP = { readonly: 'Claude רק קורא ועונה. לא משנה קבצים ולא מריץ פקודות.', edit: 'Claude משנה קבצים בתוך הפרויקט. כל פקודה אחרת מחכה לאישור שלך בטלפון.', auto: 'Claude מבצע הכל בלי לשאול. מתאים כשסומכים על המשימה.' };
@@ -555,7 +586,10 @@ function Prefs({ next, back }: { next: () => void; back: () => void }) {
       </div>
       <h2>קול ההקראה</h2>
       <div className="row">
-        <label className="field short"><span>קול</span><select value={voice} onChange={e => setVoice(e.target.value)}>{Object.entries(VOICE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label className="field short"><span>קול</span><select value={voice} onChange={e => setVoice(e.target.value)}>
+          <optgroup label="הקול של ימות">{Object.entries(VOICE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</optgroup>
+          {geminiKey && <optgroup label="קול משופר (Gemini)">{Object.entries(GEMINI_VOICE_LABEL).map(([k, v]) => <option key={k} value={'gemini:' + k}>{v}</option>)}</optgroup>}
+        </select></label>
         <label className="field short"><span>מהירות</span><select value={rate} onChange={e => setRate(Number(e.target.value))}>
           <option value={-4}>איטי</option><option value={0}>רגיל</option><option value={4}>מהיר</option><option value={8}>מהיר מאוד</option></select></label>
       </div>
@@ -568,7 +602,7 @@ function Prefs({ next, back }: { next: () => void; back: () => void }) {
   );
 }
 
-// ---------- 9. הפעלה ובדיקה ----------
+// ---------- 10. הפעלה ובדיקה ----------
 function Finish({ status, back }: { status: Status | null; back: () => void }) {
   const [phase, setPhase] = useState<'ready' | 'starting' | 'running' | 'error'>(status?.mode === 'running' && status.done.finished ? 'running' : 'ready');
   const [notes, setNotes] = useState<string[]>([]);

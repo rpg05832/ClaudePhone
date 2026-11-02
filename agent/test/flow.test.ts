@@ -215,7 +215,37 @@ test('הגדרות: בחירת קול ומהירות מוחלת על השלוח�
   await c.send('3');
   await c.send('3');
   assert.deepEqual(voiceCalls.at(-1), ['Sivan', 4]);
-  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude', pin: 'required' });
+  // בחירת קול של ימות מכבה את הקול המשופר (0.7.8)
+  assert.deepEqual(store.getSettings(), { editMode: 'edit', voice: 'Sivan', rate: 4, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'groq', pin: 'required', speech: 'yemot', geminiVoice: 'Charon' });
+});
+
+test('הגדרות: הקול המשופר של ג\'מיני מוצע רק כשיש מפתח, ובחירתו נשמרת ומופעלת', async () => {
+  const { flow, store } = setup();
+  const c = call(flow);
+  await c.send(); await c.send(PIN); await c.send('7');
+  assert.doesNotMatch(await c.send('2'), /גמיני/);           // אין מפתח: אין אפשרות 7
+  assert.match(await c.send('7'), /לשינוי מצב העבודה/);         // חזרה להגדרות
+  const withKey = setup({ improvedVoiceAvailable: () => true });
+  const c2 = call(withKey.flow);
+  await c2.send(); await c2.send(PIN); await c2.send('7');
+  assert.match(await c2.send('2'), /לקול המשופר של גמיני 7/);
+  assert.match(await c2.send('7'), /לקול גברי רגוע 1.*לקול נשי בהיר 6.*לחזרה 0/);
+  assert.match(await c2.send('3'), /נבחר קול גברי קליל של גמיני.*הקול: קול גברי קליל של גמיני/);
+  assert.equal(withKey.store.getSettings().geminiVoice, 'Puck');
+  assert.equal(withKey.store.getSettings().speech, 'gemini');
+  assert.equal(store.getSettings().speech, 'gemini');          // בלי מפתח ההגדרה נשארת, פשוט לא פעילה
+});
+
+test('הקול המשופר: התשובה מושמעת מקבצים (f-) כשיש, ובקול של ימות (t-) כשאין', async () => {
+  const spoken: string[] = [];
+  const { flow } = setup({ speak: async (t) => { spoken.push(t); return t.startsWith('שלום') ? '/9/tts/abc' : null; } });
+  const c = call(flow);
+  const first = await c.send();
+  assert.match(first, /read=f-\/9\/tts\/abc=v1,/);             // "שלום. הקש את הקוד" הופק לקובץ
+  assert.ok(spoken.length >= 1);
+  const menu = await c.send(PIN);
+  assert.match(menu, /t-/);                                     // טקסטים שלא הופקו: הקול של ימות
+  assert.doesNotMatch(menu, /f-undefined|f-null/);
 });
 
 function doneTask(tasks: Tasks, projId: string, resultText: string, resultSummary: string) {
@@ -359,13 +389,16 @@ test('הגדרות: מקש 8 בוחר את מנוע התמלול, והבחירה
   const { flow, store } = setup();
   const c = call(flow);
   await c.send(); await c.send(PIN);
-  assert.match(await c.send('7'), /התמלול: Claude.*למנוע התמלול 8/);
-  assert.match(await c.send('8'), /לתמלול בשירות של קלוד.*1.*במחשב.*2/);
-  assert.match(await c.send('2'), /מעכשיו ההקלטות מתומללות במחשב/);
+  assert.match(await c.send('7'), /התמלול: גרוק.*למנוע התמלול 8/);
+  assert.match(await c.send('8'), /לתמלול חינמי בגרוק הקש 1.*קלוד.*2.*במחשב.*3/);
+  assert.match(await c.send('3'), /מעכשיו ההקלטות מתומללות במחשב/);
   assert.equal(store.getSettings().stt, 'local');
-  assert.match(await c.send('8'), /לתמלול בשירות של קלוד/);
-  assert.match(await c.send('1'), /מתומללות בשירות של קלוד/);
+  assert.match(await c.send('8'), /לתמלול חינמי בגרוק/);
+  assert.match(await c.send('2'), /מתומללות בשירות של קלוד/);
   assert.equal(store.getSettings().stt, 'claude');
+  await c.send('8');
+  assert.match(await c.send('1'), /מתומללות בגרוק/);
+  assert.equal(store.getSettings().stt, 'groq');
 });
 
 test('הגדרות: מקש 9 מפנה לשלוחת ההרשמה לצינתוקים חינמיים, רק כשהיא מוגדרת', async () => {

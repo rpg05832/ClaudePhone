@@ -15,6 +15,21 @@ export const VOICES = [
   { id: 'Osnat', name: 'קול נשי שלישי' },
 ] as const;
 
+/**
+ * 0.7.8: הקולות של Gemini לקול המשופר (קובץ שמע לכל טקסט במקום מנוע ההקראה של ימות). שמות הקולות מ-Gemini API;
+ * התיאורים לפי המסמך של Google (ai.google.dev/gemini-api/docs/speech-generation). ברירת המחדל: Charon (גברי, רגוע).
+ */
+export const GEMINI_VOICES = [
+  { id: 'Charon', name: 'גברי רגוע (Charon)', spoken: 'קול גברי רגוע' },
+  { id: 'Orus', name: 'גברי יציב (Orus)', spoken: 'קול גברי יציב' },
+  { id: 'Puck', name: 'גברי קליל (Puck)', spoken: 'קול גברי קליל' },
+  { id: 'Kore', name: 'נשי יציב (Kore)', spoken: 'קול נשי יציב' },
+  { id: 'Leda', name: 'נשי צעיר (Leda)', spoken: 'קול נשי צעיר' },
+  { id: 'Zephyr', name: 'נשי בהיר (Zephyr)', spoken: 'קול נשי בהיר' },
+] as const;
+
+export type SpeechChoice = 'yemot' | 'gemini';
+
 export type EditMode = 'readonly' | 'edit' | 'auto';
 
 export interface AgentSettings {
@@ -34,14 +49,19 @@ export interface AgentSettings {
   effort: EffortChoice;
   /** מה מוקרא בטלפון כשמשימה מסתיימת: התשובה המלאה של Claude, או רק הסיכום הקצר שבראשה */
   readback: ReadbackChoice;
-  /** מנוע התמלול: שירות ההכתבה של Claude (ivrit-ai כגיבוי), או ivrit-ai במחשב (Claude כגיבוי) */
+  /** מנוע התמלול הראשון: Groq (חינמי, ברירת המחדל מ-0.7.8), שירות ההכתבה של Claude, או ivrit-ai במחשב. השאר גיבוי. */
   stt: SttChoice;
   /** כניסה מהטלפון: קוד אישי (required), או זיהוי השיחה בלבד ממספר מורשה (off). נקבע רק בלוח הבקרה. */
   pin: 'required' | 'off';
+  /** 0.7.8: הקראה בקול המשופר של Gemini (gemini, כשיש מפתח; אחרת הקול של ימות), או תמיד בקול של ימות (yemot) */
+  speech: SpeechChoice;
+  /** הקול של Gemini לקול המשופר */
+  geminiVoice: string;
 }
 
-export type SttChoice = 'claude' | 'local';
+export type SttChoice = 'groq' | 'claude' | 'local';
 export const STT_ENGINES: { id: SttChoice; name: string; spoken: string }[] = [
+  { id: 'groq', name: 'Groq (חינמי, מהיר, בלי התקנה)', spoken: 'גרוק' },
   { id: 'claude', name: 'Claude (שירות ההכתבה, בלי התקנה)', spoken: 'Claude' },
   { id: 'local', name: 'ivrit-ai במחשב', spoken: 'איברית איי איי במחשב' },
 ];
@@ -71,7 +91,7 @@ export const MODELS: { id: ModelChoice; name: string; spoken: string }[] = [
   { id: 'haiku', name: 'Haiku (מהיר וחסכוני)', spoken: 'הייקו' },
 ];
 
-export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'claude', pin: 'required' };
+export const DEFAULT_SETTINGS: AgentSettings = { editMode: 'edit', voice: 'ymMale', rate: 0, notify: 'on', model: 'default', effort: 'default', readback: 'full', stt: 'groq', pin: 'required', speech: 'gemini', geminiVoice: 'Charon' };
 
 export const DEFAULT_PERMISSIONS: ProjectPermissions = { editInsideProject: true, runCommands: false };
 
@@ -108,8 +128,10 @@ export class Store {
       model: MODELS.some(x => x.id === m.model) ? m.model : 'default',
       effort: EFFORTS.some(x => x.id === m.effort) ? m.effort : 'default',
       readback: m.readback === 'summary' ? 'summary' : 'full',
-      stt: m.stt === 'local' ? 'local' : 'claude',
+      stt: STT_ENGINES.some(x => x.id === m.stt) ? m.stt : DEFAULT_SETTINGS.stt,
       pin: m.pin === 'off' ? 'off' : 'required',
+      speech: m.speech === 'yemot' ? 'yemot' : 'gemini',
+      geminiVoice: GEMINI_VOICES.some(v => v.id === m.geminiVoice) ? m.geminiVoice : DEFAULT_SETTINGS.geminiVoice,
     };
   }
 

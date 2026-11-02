@@ -43,6 +43,33 @@ export class YemotApi {
     return buf;
   }
 
+  /**
+   * מעלה קובץ שמע (0.7.8, הקול המשופר). UploadFile: POST multipart עם token ו-path (f2.freeivr.co.il/post/32031).
+   * הקובץ כבר בפורמט של ימות (WAV 8kHz 16 ביט מונו), ולכן בלי convertAudio.
+   */
+  async uploadFile(path: string, data: Buffer, filename = 'file.wav'): Promise<void> {
+    const full = path.startsWith('ivr2:') ? path : `ivr2:${path.replace(/^\/?/, '/')}`;
+    const form = new FormData();
+    form.append('token', this.token);
+    form.append('path', full);
+    form.append('file', new Blob([new Uint8Array(data)], { type: 'audio/wav' }), filename);
+    const res = await fetch(`${this.base}/UploadFile`, { method: 'POST', body: form });
+    const json = await res.json().catch(() => ({ responseStatus: 'HTTP_' + res.status }));
+    if (json.responseStatus !== 'OK') {
+      const err = new Error(`ימות UploadFile: ${json.responseStatus}${json.message ? ' — ' + json.message : ''}`);
+      (err as any).yemotStatus = json.responseStatus;
+      throw err;
+    }
+  }
+
+  /** יוצר תת-תיקייה (שלוחה) אם אינה קיימת: UpdateExtension יוצר שלוחה חדשה כשהנתיב לא קיים. */
+  async ensureFolder(path: string, title = 'ClaudePhone'): Promise<void> {
+    const p = path.replace(/^ivr2:/, '').replace(/^\/+/, '');
+    const ini = await this.getTextFile(`ivr2:${p}/ext.ini`);
+    if (ini !== null) return;
+    await this.call('UpdateExtension', { path: `ivr2:${p}`, type: 'menu', title });
+  }
+
   /** מוחק קובץ אחרי הורדה תקינה (אפיון 5: הקלטה נמחקת מימות רק אחרי קליטה). */
   async deleteFile(path: string): Promise<void> {
     const full = path.startsWith('ivr2:') ? path : `ivr2:${path.replace(/^\/?/, '/')}`;

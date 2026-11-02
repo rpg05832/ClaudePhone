@@ -77,7 +77,7 @@ export interface Project {
 export interface Overview {
   mode?: 'setup' | 'running';
   health: Record<string, any>;
-  settings: { editMode: 'readonly' | 'edit' | 'auto'; voice: string; rate: number; notify: 'on' | 'off'; model: string; effort: string; readback?: 'full' | 'summary'; stt?: 'claude' | 'local'; pin?: 'required' | 'off' };
+  settings: { editMode: 'readonly' | 'edit' | 'auto'; voice: string; rate: number; notify: 'on' | 'off'; model: string; effort: string; readback?: 'full' | 'summary'; stt?: 'groq' | 'claude' | 'local'; pin?: 'required' | 'off'; speech?: 'yemot' | 'gemini'; geminiVoice?: string };
   update?: UpdateState | null;
   counts: { pending: number; active: number; unheard: number };
 }

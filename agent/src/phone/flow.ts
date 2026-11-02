@@ -6,8 +6,8 @@
 import type { Task, Project, Conversation, PermissionRequest } from '@claude-phone/shared';
 import type { DecideResult } from '../claude/broker.ts';
 import type { ConversationEntry } from '../history/conversations.ts';
-import { r, san, EMPTY_VALUE, type YemotResponse, type YemotQuery } from './response.ts';
-import { VOICES, MODELS, EFFORTS, READBACKS, STT_ENGINES, type Store, type EditMode, type ModelChoice, type EffortChoice, type ReadbackChoice } from '../store/db.ts';
+import { r, san, EMPTY_VALUE, type YemotResponse, type YemotQuery, type Speaker } from './response.ts';
+import { VOICES, GEMINI_VOICES, MODELS, EFFORTS, READBACKS, STT_ENGINES, type Store, type EditMode, type ModelChoice, type EffortChoice, type ReadbackChoice } from '../store/db.ts';
 import { cleanForSpeech } from '../claude/runner.ts';
 
 const MODE_NAMES: Record<EditMode, string> = {
@@ -58,6 +58,10 @@ export interface FlowDeps {
   sttChanged?: () => void;
   /** צינתוקים חינמיים: הנתיב של שלוחת ההרשמה (למשל /9/1), והודעה אחרי שהמשתמש הופנה אליה. null: לא מופעל. */
   freeTzintuk?: () => { folder: string; onRedirect: () => void } | null;
+  /** 0.7.8, הקול המשופר: טקסט לקובץ בימות (f-), או null לקול של ימות. בלי זה: תמיד הקול של ימות. */
+  speak?: Speaker;
+  /** הקול המשופר זמין (יש מפתח Gemini), לתפריט בחירת הקול. */
+  improvedVoiceAvailable?: () => boolean;
   /** עיכוב (נדרס בבדיקות). */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -70,7 +74,7 @@ type Screen =
   | 'newProjMode' | 'newProjName' | 'newProjRecorded' | 'newProjTranscribing' | 'newProjConfirm'
   | 'record' | 'transcribing' | 'confirmTranscript'
   | 'waiting'
-  | 'settings' | 'settingsVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback' | 'settingsStt'
+  | 'settings' | 'settingsVoice' | 'settingsGeminiVoice' | 'settingsRate' | 'settingsMode' | 'settingsModel' | 'taskModel' | 'settingsEffort' | 'settingsReadback' | 'settingsStt'
   | 'results' | 'resultMenu'
   | 'activeList' | 'activeMenu' | 'stopConfirm'
   | 'approval' | 'approvalText' | 'explainRecorded' | 'explainTranscribing' | 'explainConfirm'
@@ -164,7 +168,8 @@ export class PhoneFlow {
 
     let res: string;
     try {
-      res = (await this.dispatch(c, input)).toString();
+      // 0.7.8: עם הקול המשופר, הטקסטים מופקים לקבצים (render); בלי: הקול של ימות
+      res = await (await this.dispatch(c, input)).render(this.d.speak);
     } catch (e) {
       logError('phone', e, `call ${callId} screen ${c.screen}`);
       res = r().say('אירעה תקלה. חוזרים לתפריט הראשי').toString() + '&' + this.mainMenu(c).toString();
@@ -214,6 +219,7 @@ export class PhoneFlow {
       case 'confirmTranscript': return this.onConfirmTranscript(c, input);
       case 'settings': return this.onSettings(c, input);
       case 'settingsVoice': return this.onSettingsVoice(c, input);
+      case 'settingsGeminiVoice': return this.onSettingsGeminiVoice(c, input);
       case 'settingsRate': return this.onSettingsRate(c, input);
       case 'settingsMode': return this.onSettingsMode(c, input);
       case 'settingsModel': return this.onSettingsModel(c, input);
@@ -886,7 +892,9 @@ export class PhoneFlow {
     const readbackName = READBACKS.find(m => m.id === st.readback)?.spoken ?? '';
     const sttName = STT_ENGINES.find(m => m.id === st.stt)?.spoken ?? '';
     const conns = this.d.mcpConnections?.() ?? [];
-    res.say(`המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}. התמלול: ${sttName}${conns.length ? `. חיבורים פתוחים למשימות: ${conns.join(', ')}` : ''}`);
+    const improved = st.speech === 'gemini' && this.d.improvedVoiceAvailable?.();
+    const voiceInfo = improved ? `הקול: ${GEMINI_VOICES.find(v => v.id === st.geminiVoice)?.spoken ?? 'משופר'} של גמיני. ` : '';
+    res.say(`${voiceInfo}המודל: ${modelName}. רמת החשיבה: ${effortName}. בסיום משימה מוקראת ${readbackName}. התמלול: ${sttName}${conns.length ? `. חיבורים פתוחים למשימות: ${conns.join(', ')}` : ''}`);
     return res.readDigits(`לשינוי מצב העבודה הקש 1. לבחירת קול 2. למהירות ההקראה 3. ${st.notify === 'on' ? 'לכיבוי הצינתוקים' : 'להפעלת הצינתוקים'} 4. לבחירת מודל 5. לרמת חשיבה 6. למה מוקרא בסיום משימה 7. למנוע התמלול 8. ${this.d.freeTzintuk?.() ? 'להרשמה לצינתוקים חינמיים 9. ' : ''}לחזרה 0`, this.next(c), { timeout: 20 });
   }
 
@@ -900,7 +908,7 @@ export class PhoneFlow {
     }
     if (input === '8') {
       c.screen = 'settingsStt';
-      return r().readDigits('לתמלול בשירות של קלוד, בלי התקנה, הקש 1. לתמלול במחשב עם איברית איי איי 2. כל אחד מהם משמש גיבוי לשני. לחזרה 0', this.next(c), { timeout: 20 });
+      return r().readDigits('לתמלול חינמי בגרוק הקש 1. לתמלול בשירות של קלוד, בלי התקנה, 2. לתמלול במחשב עם איברית איי איי 3. השאר משמשים גיבוי. לחזרה 0', this.next(c), { timeout: 20 });
     }
     if (input === '7') {
       c.screen = 'settingsReadback';
@@ -926,7 +934,9 @@ export class PhoneFlow {
     }
     if (input === '2') {
       c.screen = 'settingsVoice';
-      return r().readDigits(VOICES.map((v, i) => `ל${v.name} ${i + 1}`).join('. ') + '. לחזרה 0', this.next(c), { timeout: 20 });
+      // 0.7.8: מקש 7 לקול המשופר של גמיני (רק כשיש מפתח)
+      const gemini = this.d.improvedVoiceAvailable?.() ? `. לקול המשופר של גמיני ${VOICES.length + 1}` : '';
+      return r().readDigits(VOICES.map((v, i) => `ל${v.name} ${i + 1}`).join('. ') + gemini + '. לחזרה 0', this.next(c), { timeout: 20 });
     }
     if (input === '3') {
       c.screen = 'settingsRate';
@@ -962,7 +972,10 @@ export class PhoneFlow {
     this.d.store.setSetting('stt', m.id);
     this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_stt', detail: m.id });
     this.d.sttChanged?.();
-    return this.settingsScreen(c, m.id === 'claude' ? 'מעכשיו ההקלטות מתומללות בשירות של קלוד' : 'מעכשיו ההקלטות מתומללות במחשב. אם המודל לא מותקן, התמלול יישאר אצל קלוד');
+    const msg = m.id === 'groq' ? 'מעכשיו ההקלטות מתומללות בגרוק. אם אין מפתח, התמלול עובר לגיבוי'
+      : m.id === 'claude' ? 'מעכשיו ההקלטות מתומללות בשירות של קלוד'
+      : 'מעכשיו ההקלטות מתומללות במחשב. אם המודל לא מותקן, התמלול עובר לגיבוי';
+    return this.settingsScreen(c, msg);
   }
 
   private onSettingsEffort(c: CallState, input: string | undefined): YemotResponse {
@@ -997,9 +1010,25 @@ export class PhoneFlow {
   }
 
   private async onSettingsVoice(c: CallState, input: string | undefined): Promise<YemotResponse> {
+    if (input === String(VOICES.length + 1) && this.d.improvedVoiceAvailable?.()) {
+      c.screen = 'settingsGeminiVoice';
+      return r().readDigits(GEMINI_VOICES.map((v, i) => `ל${v.spoken} ${i + 1}`).join('. ') + '. לחזרה 0', this.next(c), { timeout: 20 });
+    }
     const v = VOICES[Number(input) - 1];
     if (!input || input === '0' || !v) return this.settingsScreen(c);
+    // בחירת קול של ימות מכבה את הקול המשופר (אפשר להחזיר אותו מאותו תפריט)
+    if (this.d.store.getSettings().speech !== 'yemot') { this.d.store.setSetting('speech', 'yemot'); this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_speech', detail: 'yemot' }); }
     return this.changeVoice(c, v.id, this.d.store.getSettings().rate, `נבחר ${v.name}`);
+  }
+
+  /** 0.7.8: בחירת קול של גמיני מפעילה את הקול המשופר; המסך הבא כבר מוקרא בו. */
+  private onSettingsGeminiVoice(c: CallState, input: string | undefined): YemotResponse {
+    const v = GEMINI_VOICES[Number(input) - 1];
+    if (!input || input === '0' || !v) return this.settingsScreen(c);
+    this.d.store.setSetting('geminiVoice', v.id);
+    this.d.store.setSetting('speech', 'gemini');
+    this.d.store.phoneLog({ callId: c.callId, phone: c.phone, kind: 'setting_speech', detail: `gemini ${v.id}` });
+    return this.settingsScreen(c, `נבחר ${v.spoken} של גמיני. כך נשמע הקול החדש`);
   }
 
   private async onSettingsRate(c: CallState, input: string | undefined): Promise<YemotResponse> {
@@ -1104,11 +1133,12 @@ export const HELP_TOPICS: { title: string; lines: string[] }[] = [
   { title: 'הגדרות', lines: [
     'בהגדרות במקש 7',
     'מקש 1 מצב העבודה קריאה בלבד או עריכה עם אישור שלך לכל פקודה או אישור אוטומטי של הכל',
-    'מקש 2 בוחר קול ומקש 3 את מהירות ההקראה',
+    'מקש 2 בוחר קול ומקש 3 את מהירות ההקראה ואם הוגדר מפתח של גמיני במחשב מקש 2 מציע גם קול משופר שנשמע כמו אדם',
     'מקש 4 מפעיל או מכבה את הצינתוקים ובלילה בשבת ובחג הצינתוקים נדחים לסוף זמן השקט',
     'מקש 5 בוחר מודל פייבל הוא החזק ביותר אופוס חזק מאוד סונט מאוזן והייקו מהיר וחסכוני',
     'מקש 6 בוחר רמת חשיבה ורמה גבוהה יותר יסודית יותר אבל איטית יותר',
     'מקש 7 קובע מה מוקרא בסיום משימה התשובה המלאה של קלוד או רק הסיכום הקצר שבראשה',
+    'מקש 8 בוחר את מנוע התמלול גרוק חינמי ומהיר או השירות של קלוד או איברית איי איי במחשב והשאר גיבוי',
     'חיבורים כמו ג׳ימייל דרייב ויומן פותחים למשימות מהטלפון בלוח הבקרה בהגדרות ושליחת מייל או מחיקה מגיעות אליך לאישור לפי מצב העבודה',
   ] },
 ];

@@ -17,6 +17,9 @@ import { startQuickTunnel } from './phone/tunnel.ts';
 import { YemotApi } from './phone/yemot-api.ts';
 import { WhisperTranscriber, SmartTranscriber } from './stt/transcriber.ts';
 import { ClaudeSpeechToText } from './stt/claude.ts';
+import { GroqSpeechToText } from './stt/groq.ts';
+import { GeminiSpeech } from './tts/gemini.ts';
+import { ImprovedVoice, speechStyle } from './tts/speech.ts';
 import { Worker } from './claude/worker.ts';
 import { createProjectFromPhone } from './projects.ts';
 import { PinLockout, loadPinHash } from './util/pin.ts';
@@ -158,9 +161,25 @@ let localSttInstalled = false;
 const { query } = await import('@anthropic-ai/claude-agent-sdk');
 const whisper = new WhisperTranscriber(cfg.stt.python, cfg.stt.script, cfg.stt.model, cfg.stt.timeoutSeconds);
 const claudeStt = new ClaudeSpeechToText({ query: query as any });
-const stt = new SmartTranscriber(() => store.getSettings().stt, claudeStt, whisper, (p) => readFileSync(p), () => localSttInstalled);
-log('stt', `מנוע התמלול: ${store.getSettings().stt === 'claude' ? 'Claude' : 'ivrit-ai'} · ${stt.status().detail}`);
+// 0.7.8: Groq (Whisper, חינמי) עם מפתח בקובץ data/groq.key; בלי מפתח המנוע פשוט לא זמין והגיבוי עובד
+const groqStt = new GroqSpeechToText({ keyFile: cfg.stt.groqKeyFile, model: cfg.stt.groqModel, apiBase: cfg.stt.groqApiBase });
+const stt = new SmartTranscriber(() => store.getSettings().stt, claudeStt, whisper, (p) => readFileSync(p), () => localSttInstalled, groqStt);
+log('stt', `מנוע התמלול: ${store.getSettings().stt} · ${stt.status().detail}`);
 stt.warmup().catch(e => logError('stt', e, 'warmup'));
+
+// 0.7.8: הקול המשופר. טקסט מופק בקול של Gemini (מפתח ב-data/gemini.key), מועלה לתת-תיקייה של השלוחה ומושמע כקובץ.
+// בלי מפתח, או כשההפקה נכשלת או איטית: הקול של ימות, כמו קודם.
+const gemini = new GeminiSpeech({ keyFile: cfg.speech.geminiKeyFile, apiBase: cfg.speech.apiBase, models: cfg.speech.models });
+const improvedVoice = new ImprovedVoice({
+  enabled: () => store.getSettings().speech === 'gemini',
+  voice: () => store.getSettings().geminiVoice,
+  style: () => speechStyle(store.getSettings().rate),
+  gemini,
+  yemot: { uploadFile: (p, b) => yemot.uploadFile(p, b), deleteFile: (p) => yemot.deleteFile(p), ensureFolder: (f) => yemot.ensureFolder(f) },
+  extension: () => cfg.yemot.chatExtension, folder: cfg.speech.folder,
+  cacheFile: join(cfg.dataDir, 'tts-cache.json'), maxFiles: cfg.speech.maxFiles, timeoutMs: cfg.speech.timeoutMs, refreshDays: cfg.speech.refreshDays,
+});
+log('tts', improvedVoice.active ? `הקול המשופר פעיל: ${store.getSettings().geminiVoice} (${improvedVoice.status().files} קבצים במטמון)` : gemini.available() ? 'הקול המשופר כבוי בהגדרות' : 'הקול המשופר לא פעיל: אין מפתח Gemini (אפשר להוסיף בלוח הבקרה)');
 
 // ---------- התראות ----------
 const quiet = { ...DEFAULT_QUIET, ...cfg.quietHours };
@@ -320,6 +339,8 @@ const flow = new PhoneFlow({
   mcpConnections: () => { const p = mcpPolicy(); return p ? p.enabled.map(s => p.labels[s] ?? s) : []; },
   sttChanged: () => { if (localSttInstalled) whisper.warmup().catch(e => logError('stt', e, 'warmup')); },
   freeTzintuk: () => (freeTzintuk && freeTzintukExtensionReady ? { folder: freeTzintukFolder, onRedirect: () => freeTzintuk.invalidate() } : null),
+  speak: (text) => improvedVoice.speak(text),
+  improvedVoiceAvailable: () => gemini.available(),
 });
 
 flowRef = flow;
@@ -377,6 +398,7 @@ const dash = startDashboard({
     tunnel: { ok: !!currentUrl, mode: cfg.tunnel.mode === 'none' ? 'none' : 'quick', url: currentUrl ? currentUrl + (cfg.tunnel.mode === 'none' ? cfg.phoneServer.path : '') : null, since: state.tunnelSince, error: state.lastTunnelError },
     yemot: { ok: !!state.extensionUpdatedAt, extension: cfg.yemot.chatExtension, updatedAt: state.extensionUpdatedAt },
     stt: { ...stt.status(), model: cfg.stt.model, last: stt.lastEngine },
+    speech: improvedVoice.status(),
     claude: { ok: true, busyWith: worker.busyWith, claudeCodeVersion: history.list().find(h => h.version)?.version ?? null, lockFixedAt: state.lockFixedAt },
     phone: { activeCalls: flow.activeCalls() },
     quiet: quietState(new Date(), quiet),
@@ -471,7 +493,7 @@ if (process.platform === 'linux' && launcherPath() && !existsSync(join(cfg.dataD
 }
 await connectTunnel();
 
-beforeExit = () => { stopping = true; updater.stop(); dash.close(); dash.closeAllConnections(); notifier.stop(); stt.stop(); currentTunnelStop(); store.close(); };
+beforeExit = () => { stopping = true; updater.stop(); dash.close(); dash.closeAllConnections(); notifier.stop(); stt.stop(); improvedVoice.flush(); currentTunnelStop(); store.close(); };
 }
 
 /** בהתקנה (dist/agent.mjs) ה-launcher נמצא בתיקיית האפליקציה; בפיתוח אין הפעלה אוטומטית מהאשף. */

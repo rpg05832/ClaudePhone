@@ -72,10 +72,35 @@ test('אשף: טלפונים, PIN, פרויקטים, העדפות, ומצב הג
   assert.ok(existsSync(parent));
   assert.equal(store.listProjects(true).length, 1);
 
-  const pr = await api.handle('POST', '/prefs', { editMode: 'auto', voice: 'nope', rate: 99, notify: 'off' });
+  const pr = await api.handle('POST', '/prefs', { editMode: 'auto', voice: 'nope', rate: 99, notify: 'off', speech: 'yemot', geminiVoice: 'Kore', stt: 'claude' });
   assert.equal((pr.json as any).settings.editMode, 'auto');
   assert.equal((pr.json as any).settings.rate, 10);
   assert.equal((pr.json as any).settings.notify, 'off');
+  assert.equal((pr.json as any).settings.speech, 'yemot');
+  assert.equal((pr.json as any).settings.geminiVoice, 'Kore');
+  assert.equal((pr.json as any).settings.stt, 'claude');
+
+  // 0.7.8: מפתחות של Groq ו-Gemini: נבדקים מול השירות (כאן מדומה), נשמרים בקבצים ולא חוזרים ללוח
+  const fake = async (url: string, init: any) => {
+    const auth = String(init?.headers?.Authorization ?? init?.headers?.['x-goog-api-key'] ?? '');
+    if (/BAD/.test(auth)) return { status: 401, ok: false, json: async () => ({}), text: async () => '{}' };
+    const j = url.includes('groq') ? { data: [{ id: 'whisper-large-v3' }] } : { models: [{ name: 'models/gemini-3.8-flash-tts' }] };
+    return { status: 200, ok: true, json: async () => j, text: async () => '' };
+  };
+  const api2 = new SetupApi({ cfg, store, mode: 'setup', launcherPath: null, makeShortcut: async () => '', dashboardUrl: () => 'x', restart: () => {}, root, fetch: fake as any });
+  assert.deepEqual(((await api2.handle('GET', '/status')).json as any).keys, { groq: false, gemini: false, groqUrl: 'https://console.groq.com/keys', geminiUrl: 'https://aistudio.google.com/apikey' });
+  let k = (await api2.handle('POST', '/keys', { groq: 'gsk_BADBADBADBADBADBADBADBADBAD', gemini: 'AIzaGOODGOODGOODGOODGOODGOODGOODGOODGOOD1' })).json as any;
+  assert.equal(k.results.groq.ok, false); assert.match(k.results.groq.detail, /401/);
+  assert.equal(k.results.gemini.ok, true); assert.match(k.results.gemini.detail, /gemini-3.8-flash-tts/);
+  assert.deepEqual([k.keys.groq, k.keys.gemini], [false, true]);
+  assert.equal(readFileSync(cfg.speech.geminiKeyFile, 'utf8').trim(), 'AIzaGOODGOODGOODGOODGOODGOODGOODGOODGOOD1');
+  k = (await api2.handle('POST', '/keys', { groq: ' gsk_GOODGOODGOODGOODGOODGOODGOOD ' })).json as any;
+  assert.equal(k.results.groq.ok, true); assert.equal(k.results.gemini, null);
+  assert.equal(readFileSync(cfg.stt.groqKeyFile, 'utf8').trim(), 'gsk_GOODGOODGOODGOODGOODGOODGOOD');
+  k = (await api2.handle('POST', '/keys', { clear: ['gemini'] })).json as any;
+  assert.deepEqual([k.keys.groq, k.keys.gemini], [true, false]);
+  assert.equal(existsSync(cfg.speech.geminiKeyFile), false);
+  assert.equal(JSON.stringify(k).includes('GOOD'), false);      // המפתחות לא חוזרים ללוח
 
   // עדיין חסרה ימות: אי אפשר לסיים
   assert.equal((await api.handle('POST', '/finish', {})).code, 400);

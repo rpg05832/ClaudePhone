@@ -34,6 +34,8 @@ export const HOSTS: { host: string; purpose: string }[] = [
   { host: 'api.anthropic.com', purpose: 'Claude' },
   { host: 'claude.ai', purpose: 'התחברות ל-Claude' },
   { host: 'www.call2all.co.il', purpose: 'ימות המשיח' },
+  { host: 'api.groq.com', purpose: 'תמלול חינמי (Groq)' },
+  { host: 'generativelanguage.googleapis.com', purpose: 'הקול המשופר (Gemini)' },
   { host: 'huggingface.co', purpose: 'הורדת מודל התמלול' },
   { host: 'github.com', purpose: 'הורדת רכיב המנהרה' },
   ...(isWin ? [{ host: 'www.python.org', purpose: 'הורדת Python' }] : [{ host: 'api.github.com', purpose: 'הורדת Python' }]),

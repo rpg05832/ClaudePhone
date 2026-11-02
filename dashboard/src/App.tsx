@@ -6,7 +6,8 @@ import { CreditLine } from './Credits';
 import { UpdateBanner, UpdateBox, LocationCard } from './Maintenance';
 import ConversationView, { Composer } from './Chat';
 import McpConnections from './Mcp';
-import { MODEL_LABEL, EFFORT_LABEL, when, until, full, STATE_LABEL, stateTone, SOURCE_LABEL, DECISION_LABEL, VIA_LABEL, MODE_LABEL, VOICE_LABEL, PHONE_KIND } from './format';
+import { MODEL_LABEL, EFFORT_LABEL, when, until, full, STATE_LABEL, stateTone, SOURCE_LABEL, DECISION_LABEL, VIA_LABEL, MODE_LABEL, VOICE_LABEL, GEMINI_VOICE_LABEL, STT_LABEL, STT_SHORT, PHONE_KIND } from './format';
+import { KeysBox } from './Keys';
 
 // ---------- ניתוב פשוט לפי hash ----------
 function useRoute(): string[] {
@@ -87,7 +88,7 @@ function LineStrip({ ov }: { ov: Overview | null }) {
     { name: 'ימות המשיח', ok: h.yemot?.ok ?? null, detail: h.yemot?.ok ? `עודכנה ${when(h.yemot.updatedAt)}` : 'ממתין' },
     { name: h.tunnel?.mode === 'none' ? 'כתובת ציבורית' : 'מנהרה', ok: h.tunnel?.ok ?? null, detail: h.tunnel?.ok ? `פעילה ${when(h.tunnel.since)}` : h.tunnel?.error ?? 'מתחברת' },
     { name: 'המחשב', ok: live, detail: live ? 'הסוכן פועל' : 'אין חיבור לסוכן' },
-    { name: 'תמלול', ok: h.stt?.ok ? true : null, detail: h.stt?.ok ? (h.stt?.engine === 'local' ? 'ivrit-ai' : 'Claude') : 'לא זמין' },
+    { name: 'תמלול', ok: h.stt?.ok ? true : null, detail: h.stt?.ok ? (h.stt?.detail ?? STT_SHORT[h.stt?.engine] ?? '') : 'לא זמין' },
     { name: 'Claude', ok: h.claude ? true : null, detail: h.claude?.busyWith ? 'עובד על משימה' : 'פנוי' },
   ];
   const state = (ok: boolean | null) => ok === null ? 'wait' : ok ? 'ok' : 'down';
@@ -499,6 +500,7 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
     [h.tunnel?.mode === 'none' ? 'כתובת ציבורית (בלי מנהרה)' : 'מנהרת Cloudflare', h.tunnel?.ok, h.tunnel?.ok ? `${h.tunnel.url}` : h.tunnel?.error ?? 'לא מחוברת'],
     ['ימות המשיח', h.yemot?.ok, h.yemot?.ok ? `שלוחה ${h.yemot.extension} עודכנה ${when(h.yemot.updatedAt)}` : 'השלוחה לא עודכנה'],
     ['תמלול', h.stt?.ok, h.stt?.detail ?? (h.stt?.ok ? 'מוכן' : 'לא זמין')],
+    ['קול משופר (Gemini)', h.speech ? (h.speech.active ? (h.speech.pausedUntil ? null : true) : null) : null, speechText(h.speech)],
     ['Claude Code', true, `${h.claude?.claudeCodeVersion ? 'גרסה ' + h.claude.claudeCodeVersion : ''}${h.claude?.busyWith ? ' · עובד על משימה' : ' · פנוי'}${h.claude?.lockFixedAt ? ' · נעילה תקועה הוזזה הצידה ' + when(h.claude.lockFixedAt) : ''}`],
     ...(h.freeTzintuk ? [['צינתוקים', h.freeTzintuk.ready ? (h.freeTzintuk.free ? true : null) : false, freeTzintukText(h.freeTzintuk)] as [string, boolean | null, string]] : []),
   ];
@@ -509,6 +511,8 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
       <ul className="health">{rows.map(([n, ok, d]) => <li key={n}><i className={ok === null || ok === undefined ? 'dot gray' : ok ? 'dot green' : 'dot red'} /><b>{n}</b><span className="muted" dir="auto">{d}</span></li>)}</ul>
       <h2>הגדרות</h2>
       <SettingsForm s={ov.settings} />
+      <h2 id="keys">שירותים חינמיים: תמלול (Groq) וקול משופר (Gemini)</h2>
+      <KeysBox compact />
       <h2 id="mcp">חיבורי MCP למשימות מהטלפון</h2>
       <McpConnections />
       <h2>זמני שקט ושמירת הקלטות</h2>
@@ -521,6 +525,16 @@ function Health({ ov, reload }: { ov: Overview | null; reload: () => void }) {
       <p className="hint">אותן הגדרות כמו במקש 7 בטלפון. כל שינוי חל מיד, גם על משימה שכבר רצה (בשאלה הבאה).</p>
     </section>
   );
+}
+
+/** 0.7.8: מצב הקול המשופר לשורה אחת. */
+function speechText(s: any): string {
+  if (!s) return 'לא זמין';
+  if (!s.configured) return 'אין מפתח Gemini. ההקראה בקול של ימות. אפשר להוסיף מפתח למטה, ב"שירותים חינמיים"';
+  if (!s.enabled) return 'כבוי: נבחר קול של ימות. לקול המשופר בחר קול של Gemini בהגדרות';
+  const voice = GEMINI_VOICE_LABEL[s.voice] ?? s.voice;
+  if (s.pausedUntil) return `${voice} · הפסקה עד ${full(s.pausedUntil)} (${s.lastError ?? 'תקלה'}); בינתיים הקול של ימות`;
+  return `${voice} · ${s.files} קטעים שמורים בימות${s.generated ? ` · הופקו ${s.generated} מאז ההפעלה` : ''}${s.lastModel ? ` · ${s.lastModel}` : ''}${s.lastError ? ` · תקלה אחרונה: ${s.lastError}` : ''}`;
 }
 
 /** מצב הצינתוקים החינמיים לשורה אחת: מי רשום, מי לא, ומה זה אומר על העלות. */
@@ -551,7 +565,11 @@ function SettingsForm({ s }: { s: Overview['settings'] }) {
       </div>
       <div className="row">
         <label className="field short"><span>קול ההקראה</span>
-          <select value={s.voice} onChange={e => save({ voice: e.target.value })}>{Object.entries(VOICE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+          <select value={s.speech === 'gemini' ? 'gemini:' + (s.geminiVoice ?? 'Charon') : s.voice}
+            onChange={e => { const v = e.target.value; save(v.startsWith('gemini:') ? { speech: 'gemini', geminiVoice: v.slice(7) } : { speech: 'yemot', voice: v }); }}>
+            <optgroup label="הקול של ימות">{Object.entries(VOICE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</optgroup>
+            <optgroup label="קול משופר (Gemini, נשמע כמו אדם)">{Object.entries(GEMINI_VOICE_LABEL).map(([k, v]) => <option key={k} value={'gemini:' + k}>{v}</option>)}</optgroup>
+          </select></label>
         <label className="field short"><span>מהירות</span>
           <select value={s.rate} onChange={e => save({ rate: Number(e.target.value) })}>
             {[[-4, 'איטי'], [0, 'רגיל'], [4, 'מהיר'], [8, 'מהיר מאוד']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -571,12 +589,12 @@ function SettingsForm({ s }: { s: Overview['settings'] }) {
             <option value="summary">הסיכום הקצר בלבד</option>
           </select></label>
         <label className="field short"><span>תמלול ההקלטות</span>
-          <select value={s.stt ?? 'claude'} onChange={e => save({ stt: e.target.value })}>
-            <option value="claude">Claude (שירות ההכתבה, בלי התקנה)</option>
-            <option value="local">ivrit-ai במחשב</option>
+          <select value={s.stt ?? 'groq'} onChange={e => save({ stt: e.target.value })}>
+            {Object.entries(STT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select></label>
       </div>
-      <div className="hint">תמלול: כשהמנוע שנבחר נכשל, לא מזהה דיבור, או (ב-Claude) נתקע על חזרה, ההקלטה מתומללת אוטומטית במנוע השני, אם הוא זמין. ivrit-ai זמין רק אם הותקן באשף ההגדרה.</div>
+      <div className="hint">תמלול: כשהמנוע שנבחר לא זמין (אין מפתח או התחברות), נכשל, לא מזהה דיבור או נתקע על חזרה, ההקלטה מתומללת אוטומטית בבא בתור: Groq, Claude, ivrit-ai. Groq דורש מפתח חינמי (למטה, "שירותים חינמיים"); ivrit-ai זמין רק אם הותקן באשף.</div>
+      {s.speech === 'gemini' && <div className="hint">קול משופר: כל טקסט מופק פעם אחת בקול של Gemini ונשמר כקובץ בשלוחה (תת-תיקייה tts). בלי מפתח Gemini, כשהמכסה היומית נגמרת, או כשההפקה איטית, ההקראה חוזרת לקול של ימות שנבחר כאן קודם. המהירות שנבחרה משפיעה גם על הקול המשופר.</div>}
       <label className="check"><input type="checkbox" checked={s.notify === 'on'} onChange={e => save({ notify: e.target.checked ? 'on' : 'off' })} /> צינתוק לטלפון כשמשימה מהטלפון מסתיימת או מחכה לאישור</label>
       <label className="check"><input type="checkbox" checked={(s.pin ?? 'required') === 'required'} onChange={e => save({ pin: e.target.checked ? 'required' : 'off' })} /> לדרוש קוד אישי בכניסה מהטלפון</label>
       {(s.pin ?? 'required') === 'off' && <div className="hint">בלי קוד, כל מי שמתקשר מאחד הטלפונים המורשים נכנס ישר לתפריט ויכול לשלוח ל-Claude משימות במחשב. מתאים רק אם הטלפון תמיד בידיים שלך. הקוד עצמו נשמר, ואפשר להחזיר את הדרישה בכל רגע.</div>}

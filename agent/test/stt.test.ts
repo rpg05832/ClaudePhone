@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { wavPcm, looksStuck, readClaudeLogin, ClaudeSpeechToText } from '../src/stt/claude.ts';
 import { SmartTranscriber } from '../src/stt/transcriber.ts';
+import { GroqSpeechToText, checkGroqKey, describeGroqError, looksLikeGroqKey, readKeyFile } from '../src/stt/groq.ts';
 
 /** WAV של 16 ביט, 8kHz מונו, באורך נתון בשניות (שקט) */
 function wav(seconds: number, rate = 8000): Buffer {
@@ -76,7 +77,7 @@ test('תמלול Claude: שולח את ההקלטה בעברית עם ההתחב
   await assert.rejects(err.transcribeWav(wav(1)), /bad/);
 });
 
-function smart(opts: { engine: 'claude' | 'local'; claude?: string | Error; claudeAvail?: boolean; local?: string | Error; localInstalled?: boolean; seconds?: number }) {
+function smart(opts: { engine: 'groq' | 'claude' | 'local'; claude?: string | Error; claudeAvail?: boolean; local?: string | Error; localInstalled?: boolean; seconds?: number; groq?: string | Error; groqAvail?: boolean }) {
   const calls: string[] = [];
   const t = new SmartTranscriber(
     () => opts.engine,
@@ -84,9 +85,77 @@ function smart(opts: { engine: 'claude' | 'local'; claude?: string | Error; clau
     { ready: false, stop() {}, transcribe: async () => { calls.push('local'); if (opts.local instanceof Error) throw opts.local; return opts.local ?? ''; } },
     () => Buffer.alloc(0),
     () => opts.localInstalled ?? true,
+    { available: () => opts.groqAvail ?? false, transcribeWav: async () => { calls.push('groq'); if (opts.groq instanceof Error) throw opts.groq; return { text: opts.groq ?? '', seconds: opts.seconds ?? 5 }; } },
   );
   return { t, calls };
 }
+
+/** fetch מדומה ל-Groq: שומר את הבקשה ומחזיר תשובה לפי הקוד */
+function groqFetch(status: number, text = 'שלום עולם', seen: { url?: string; form?: FormData; headers?: any } = {}) {
+  return async (url: string, init: any) => {
+    seen.url = url; seen.form = init?.body; seen.headers = init?.headers;
+    if (status !== 200) return { status, ok: false, json: async () => ({}), text: async () => JSON.stringify({ error: { message: 'limit' } }) };
+    const j = url.endsWith('/models') ? { data: [{ id: 'whisper-large-v3' }, { id: 'llama' }] } : { text };
+    return { status: 200, ok: true, json: async () => j, text: async () => JSON.stringify(j) };
+  };
+}
+
+test('תמלול Groq: שולח את ההקלטה בעברית עם המפתח, ומתרגם קודי שגיאה', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cp-groq-'));
+  const keyFile = join(dir, 'groq.key');
+  const g = new GroqSpeechToText({ keyFile, fetch: groqFetch(200) as any });
+  assert.equal(g.available(), false);
+  await assert.rejects(g.transcribeWav(wav(1)), /אין מפתח/);
+  writeFileSync(keyFile, '﻿gsk_FAKEFAKEFAKEFAKEFAKEFAKEFAKE\r\n');
+  assert.equal(readKeyFile(keyFile), 'gsk_FAKEFAKEFAKEFAKEFAKEFAKEFAKE');
+  assert.equal(g.available(), true);
+  const seen: any = {};
+  const g2 = new GroqSpeechToText({ keyFile, fetch: groqFetch(200, ' שלום עולם ', seen) as any, prompt: 'קלוד' });
+  const r = await g2.transcribeWav(wav(2));
+  assert.equal(r.text, 'שלום עולם'); assert.ok(Math.abs(r.seconds - 2) < 0.001);
+  assert.match(seen.url, /api\.groq\.com\/openai\/v1\/audio\/transcriptions$/);
+  assert.equal(seen.headers.Authorization, 'Bearer gsk_FAKEFAKEFAKEFAKEFAKEFAKEFAKE');
+  assert.equal(seen.form.get('model'), 'whisper-large-v3');
+  assert.equal(seen.form.get('language'), 'he');
+  assert.equal(seen.form.get('prompt'), 'קלוד');
+  assert.equal((seen.form.get('file') as Blob).size, wav(2).length);
+  await assert.rejects(new GroqSpeechToText({ keyFile, fetch: groqFetch(401) as any }).transcribeWav(wav(1)), /מפתח Groq לא תקין/);
+  await assert.rejects(new GroqSpeechToText({ keyFile, fetch: groqFetch(429) as any }).transcribeWav(wav(1)), /המכסה/);
+  await assert.rejects(new GroqSpeechToText({ keyFile, fetch: async () => { throw new Error('ECONNRESET'); } }).transcribeWav(wav(1)), /החיבור ל-Groq נכשל/);
+  assert.match(describeGroqError(418), /נטפרי/);
+  assert.equal(looksLikeGroqKey('gsk_FAKEFAKEFAKEFAKEFAKEFAKEFAKE'), true);
+  assert.equal(looksLikeGroqKey('AIzaXXXX'), false);
+  const ck = await checkGroqKey('gsk_FAKEFAKEFAKEFAKEFAKEFAKEFAKE', 'https://x', groqFetch(200) as any);
+  assert.equal(ck.ok, true); assert.match(ck.detail, /whisper-large-v3/);
+  assert.equal((await checkGroqKey('gsk_FAKEFAKEFAKEFAKEFAKEFAKEFAKE', 'https://x', groqFetch(401) as any)).ok, false);
+  assert.equal((await checkGroqKey('bad')).ok, false);
+});
+
+test('בחירת מנוע תמלול: Groq ראשון (0.7.8), והגיבוי לפי הסדר Groq, Claude, ivrit-ai', async () => {
+  let s = smart({ engine: 'groq', groqAvail: true, groq: 'גרוק' });
+  assert.equal(await s.t.transcribe('x'), 'גרוק'); assert.deepEqual(s.calls, ['groq']); assert.equal(s.t.lastEngine, 'groq');
+  assert.match(s.t.status().detail, /^Groq · גיבוי: Claude, ivrit-ai/);
+  // Groq נכשל: Claude, ואז ivrit-ai
+  s = smart({ engine: 'groq', groqAvail: true, groq: new Error('429'), claude: new Error('ws'), local: 'מקומי' });
+  assert.equal(await s.t.transcribe('x'), 'מקומי'); assert.deepEqual(s.calls, ['groq', 'claude', 'local']);
+  // Groq לא זיהה דיבור או נתקע: הבא
+  s = smart({ engine: 'groq', groqAvail: true, groq: '', claude: 'קלוד' });
+  assert.equal(await s.t.transcribe('x'), 'קלוד');
+  s = smart({ engine: 'groq', groqAvail: true, groq: Array(30).fill('7').join(' '), claude: 'קלוד' });
+  assert.equal(await s.t.transcribe('x'), 'קלוד');
+  // נבחר Groq אבל אין מפתח: Claude מתמלל, והמצב מסביר
+  s = smart({ engine: 'groq', claude: 'קלוד' });
+  assert.equal(await s.t.transcribe('x'), 'קלוד'); assert.deepEqual(s.calls, ['claude']);
+  assert.match(s.t.status().detail, /Groq: אין מפתח · מתמלל ב-Claude · גיבוי: ivrit-ai/);
+  assert.equal(s.t.status().ok, true);
+  // נבחר Claude: Groq הוא הגיבוי הראשון
+  s = smart({ engine: 'claude', groqAvail: true, claude: new Error('ws'), groq: 'גרוק' });
+  assert.equal(await s.t.transcribe('x'), 'גרוק'); assert.deepEqual(s.calls, ['claude', 'groq']);
+  // שום מנוע
+  s = smart({ engine: 'groq', claudeAvail: false, localInstalled: false });
+  await assert.rejects(s.t.transcribe('x'), /אין מנוע תמלול זמין/);
+  assert.match(s.t.status().detail, /אין מנוע תמלול/);
+});
 
 test('בחירת מנוע תמלול וגיבוי', async () => {
   let s = smart({ engine: 'claude', claude: 'שלום' });
