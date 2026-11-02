@@ -192,5 +192,5 @@ for (const arch of ARCHES) {
   writeFileSync(join(OUT, name + '.sha256'), `${hash}  ${name}\n`);
   console.log(`נוצר: ${join(OUT, name)} (${(tgz.length / 1048576).toFixed(0)} MB)\nSHA256: ${hash}`);
 }
-cpSync(join(INST, 'linux', 'install.sh'), join(OUT, 'install.sh'));
+copyFileSync(join(INST, 'linux', 'install.sh'), join(OUT, 'install.sh'));   // copyFileSync דורס; cpSync נכשל ב-unlink ב-Windows
 console.log(`נוצר: ${join(OUT, 'install.sh')} (לפרסום ב-Release, להתקנה בפקודה אחת)`);
