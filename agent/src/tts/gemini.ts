@@ -26,7 +26,8 @@ export class GeminiModelError extends Error {
   constructor(message: string, readonly status: number, readonly model: string) { super(message); }
 }
 
-export function looksLikeGeminiKey(key: string): boolean { return /^AIza[0-9A-Za-z_-]{30,}$/.test(key.trim()); }
+/** 0.7.9: בלי בדיקת קידומת (למפתחות של Google יש כמה פורמטים); רק אורך סביר ובלי רווחים. האימות האמיתי מול השירות. */
+export function looksLikeGeminiKey(key: string): boolean { const k = key.trim(); return k.length >= 16 && !/\s/.test(k); }
 
 /** הודעת שגיאה בעברית לפי קוד התשובה (418 = נטפרי). */
 export function describeGeminiError(status: number, body = '', model = ''): string {
@@ -119,7 +120,7 @@ export class GeminiSpeech {
 
 /** בדיקת מפתח (לאשף): רשימת המודלים, ואילו ממודלי ההקראה המוגדרים קיימים. */
 export async function checkGeminiKey(key: string, models = GEMINI_DEFAULT_MODELS, apiBase = GEMINI_API_BASE, fetchFn: FetchLike = globalThis.fetch as unknown as FetchLike): Promise<{ ok: boolean; detail: string }> {
-  if (!looksLikeGeminiKey(key)) return { ok: false, detail: 'זה לא נראה כמו מפתח של Gemini (מתחיל ב-AIza)' };
+  if (!looksLikeGeminiKey(key)) return { ok: false, detail: 'המפתח קצר מדי או מכיל רווחים. העתק את המפתח המלא מ-AI Studio' };
   try {
     const res = await fetchFn(`${apiBase}/models?pageSize=1000`, { headers: { 'x-goog-api-key': key.trim() }, signal: AbortSignal.timeout(15_000) });
     if (!res.ok) return { ok: false, detail: describeGeminiError(res.status, await res.text().catch(() => '')) };

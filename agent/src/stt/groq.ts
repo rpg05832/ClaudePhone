@@ -36,7 +36,8 @@ export function readKeyFile(path: string): string | null {
 }
 
 /** מפתח Groq תקין בצורתו (gsk_ ואחריו אותיות וספרות). */
-export function looksLikeGroqKey(key: string): boolean { return /^gsk_[A-Za-z0-9]{20,}$/.test(key.trim()); }
+/** 0.7.9: בלי בדיקת קידומת (הפורמט של המפתחות משתנה); רק אורך סביר ובלי רווחים. האימות האמיתי מול השירות. */
+export function looksLikeGroqKey(key: string): boolean { const k = key.trim(); return k.length >= 16 && !/\s/.test(k); }
 
 export class GroqSpeechToText {
   constructor(private o: GroqSttOptions) {}
@@ -89,7 +90,7 @@ export function describeGroqError(status: number, body = ''): string {
 
 /** בדיקת מפתח (לאשף): GET /models עם המפתח. */
 export async function checkGroqKey(key: string, apiBase = GROQ_API_BASE, fetchFn: FetchLike = globalThis.fetch as unknown as FetchLike): Promise<{ ok: boolean; detail: string }> {
-  if (!looksLikeGroqKey(key)) return { ok: false, detail: 'זה לא נראה כמו מפתח של Groq (מתחיל ב-gsk_)' };
+  if (!looksLikeGroqKey(key)) return { ok: false, detail: 'המפתח קצר מדי או מכיל רווחים. העתק את המפתח המלא מהדף של Groq' };
   try {
     const res = await fetchFn(`${apiBase}/models`, { headers: { Authorization: `Bearer ${key.trim()}` }, signal: AbortSignal.timeout(15_000) });
     if (res.ok) {

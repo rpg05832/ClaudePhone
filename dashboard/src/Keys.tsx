@@ -20,15 +20,15 @@ type Result = { ok: boolean; detail: string } | null;
 
 const SERVICES = [
   {
-    id: 'groq' as const, title: 'תמלול: Groq', prefix: 'gsk_',
+    id: 'groq' as const, title: 'תמלול: Groq',
     what: 'ההקלטות שלך מהטלפון מתומללות בשירות Groq (מודל Whisper), חינם, בלי כרטיס אשראי ובלי התקנה. מהיר מאוד: הקלטה של דקה מתומללת בשניות.',
-    steps: ['היכנס ל-Groq (אפשר עם חשבון Google) ופתח את דף המפתחות.', 'לחץ Create API Key, תן שם כלשהו (למשל ClaudePhone), ואשר.', 'העתק את המפתח שמתחיל ב-gsk_ והדבק כאן. הוא מוצג רק פעם אחת.'],
+    steps: ['היכנס ל-Groq (אפשר עם חשבון Google) ופתח את דף המפתחות.', 'לחץ Create API Key, תן שם כלשהו (למשל ClaudePhone), ואשר.', 'העתק את המפתח והדבק כאן. הוא מוצג רק פעם אחת.'],
     quota: 'המדרגה החינמית: 2,000 תמלולים ביום ועד 2 שעות שמע בשעה. הרבה מעבר לשימוש בטלפון. אם המפתח חסר או הגיבוי נדרש, ההקלטה מתומללת אצל Claude או במחשב.',
   },
   {
-    id: 'gemini' as const, title: 'קול משופר: Gemini', prefix: 'AIza',
+    id: 'gemini' as const, title: 'קול משופר: Gemini',
     what: 'במקום הקול של ימות, כל מה שהמערכת אומרת לך בטלפון מוקרא בקול של Gemini שנשמע כמו אדם. חינם, עם מפתח של Google AI Studio.',
-    steps: ['היכנס ל-Google AI Studio עם חשבון Google ופתח את דף המפתחות.', 'לחץ Create API key (אפשר ליצור פרויקט חדש), ואשר.', 'העתק את המפתח שמתחיל ב-AIza והדבק כאן.'],
+    steps: ['היכנס ל-Google AI Studio עם חשבון Google ופתח את דף המפתחות.', 'לחץ Create API key (אפשר ליצור פרויקט חדש), ואשר.', 'העתק את המפתח (API Key) והדבק כאן.'],
     quota: 'המדרגה החינמית מוגבלת במספר בקשות ביום לכל מודל (המספר המדויק מופיע ב-AI Studio, בדף Rate limits). התוכנה חסכונית: הודעות קבועות מופקות פעם אחת ונשמרות, ורק טקסטים חדשים מופקים. כשהמכסה נגמרת או יש תקלה, ההקראה חוזרת אוטומטית לקול של ימות. שים לב: במדרגה החינמית Google רשאית להשתמש בטקסטים לשיפור המוצרים שלה.',
   },
 ];
@@ -74,7 +74,7 @@ export function KeysBox({ compact = false, onChange }: { compact?: boolean; onCh
             </details>
             <div className="row">
               <label className="field"><span>{has ? 'מפתח חדש (מחליף את השמור)' : 'הדבק את המפתח'}</span>
-                <input type="password" autoComplete="off" dir="ltr" placeholder={s.prefix + '…'} value={vals[s.id]} onChange={e => setVals(v => ({ ...v, [s.id]: e.target.value }))} /></label>
+                <input type="password" autoComplete="off" dir="ltr" placeholder="הדבק כאן את המפתח" value={vals[s.id]} onChange={e => setVals(v => ({ ...v, [s.id]: e.target.value }))} /></label>
               <div className="wiz-nav">
                 <button type="button" className="btn primary" disabled={busy !== null || !vals[s.id].trim()} onClick={() => save(s.id)}>{busy === s.id ? 'בודק…' : 'בדוק ושמור'}</button>
                 {has && <button type="button" className="btn" disabled={busy !== null} onClick={() => clear(s.id)}>מחק מפתח</button>}
