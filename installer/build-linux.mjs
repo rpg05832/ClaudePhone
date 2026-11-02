@@ -13,7 +13,7 @@
 //   install.sh launcher.sh stop.sh uninstall.sh icon.png version.txt
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
+import { cpSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
@@ -38,6 +38,14 @@ const WORK = join(INST, 'build-linux');
 const isWin = process.platform === 'win32';
 const npm = isWin ? 'npm.cmd' : 'npm';
 const step = (t) => console.log(`== ${t}`);
+/** העתקת תיקייה. לא cpSync עם recursive: ב-Node 22.23 ב-Windows (נתיב עם עברית) הוא נכשל ב-EIO "Access is denied". */
+function copyDir(src, dst) {
+  mkdirSync(dst, { recursive: true });
+  for (const e of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, e.name), d = join(dst, e.name);
+    if (e.isDirectory()) copyDir(s, d); else copyFileSync(s, d);
+  }
+}
 // ב-Windows npm.cmd דורש מעטפת; כל הארגומנטים של npm כאן בלי רווחים, ולכן זה בטוח
 const sh = (cmd, a, cwd = ROOT) => execFileSync(cmd, a, { cwd, stdio: 'inherit', shell: isWin });
 
@@ -148,8 +156,8 @@ for (const arch of ARCHES) {
   cpSync(join(WORK, 'common', 'dist', 'agent.mjs'), join(agent, 'dist', 'agent.mjs'));
   cpSync(join(ROOT, 'agent', 'src', 'store', 'schema.sql'), join(agent, 'dist', 'schema.sql'));
   cpSync(join(ROOT, 'agent', 'config.example.json'), join(agent, 'config.example.json'));
-  cpSync(join(ROOT, 'agent', 'web'), join(agent, 'web'), { recursive: true });
-  cpSync(join(ROOT, 'agent', 'channel'), join(agent, 'channel'), { recursive: true });
+  copyDir(join(ROOT, 'agent', 'web'), join(agent, 'web'));
+  copyDir(join(ROOT, 'agent', 'channel'), join(agent, 'channel'));
   mkdirSync(join(agent, 'stt'), { recursive: true });
   cpSync(join(ROOT, 'agent', 'stt', 'transcribe.py'), join(agent, 'stt', 'transcribe.py'));
 
